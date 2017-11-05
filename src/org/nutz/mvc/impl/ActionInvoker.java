@@ -69,15 +69,18 @@ public class ActionInvoker {
     }
 
     public ActionChain getActionChain(ActionContext ac) {
-        HttpServletRequest req = ac.getRequest();
-        String httpMethod = Strings.sNull(req.getMethod(), "GET").toUpperCase();
-        ActionChain chain = chainMap.get(httpMethod);
-        // 找到了特殊HTTP方法的处理动作链
-        if (null != chain) {
-            return chain;
+        String httpMethod = "";
+        if (!chainMap.isEmpty()) {
+            HttpServletRequest req = ac.getRequest();
+            httpMethod = Strings.sNull(req.getMethod(), "GET").toUpperCase();
+            ActionChain chain = chainMap.get(httpMethod);
+            // 找到了特殊HTTP方法的处理动作链
+            if (null != chain) {
+                return chain;
+            }
         }
         // 这个 URL 所有的HTTP方法用统一的动作链处理
-        else if (null != defaultChain) {
+        if (null != defaultChain) {
             return defaultChain;
         }
         if (chainMap.size() != 0 && log.isDebugEnabled()) {

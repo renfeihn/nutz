@@ -142,7 +142,7 @@ public abstract class Chain {
     
     /** 
      * 当前结点是不是特殊结点
-     * @return
+     * @return 是不是特殊结点
      */
     public abstract boolean special();
     
@@ -201,9 +201,8 @@ public abstract class Chain {
                     if (null == v) {
                         if (fm.isIgnoreNull())
                             continue;
-                    } else if (fm.isIgnoreBlankStr() && v instanceof String) {
-                        if (Strings.isBlank((String)v))
-                            continue;
+                    } else if (fm.isIgnoreBlankStr() && v instanceof String && Strings.isBlank((String)v)) {
+                        continue;
                     }
                 }
                 if (c == null) {
@@ -223,11 +222,10 @@ public abstract class Chain {
                     continue;
                 Object v = mirror.getValue(obj, f.getName());
                 if (null == v) {
-                    if (fm.isIgnoreNull())
+                    if (fm != null && fm.isIgnoreNull())
                         continue;
-                } else if (fm != null && fm.isIgnoreBlankStr() && v instanceof String) {
-                    if (Strings.isBlank((String)v))
-                        continue;
+                } else if (fm != null && fm.isIgnoreBlankStr() && v instanceof String && Strings.isBlank((String)v)) {
+                    continue;
                 }
                 if (c == null) {
                     c = Chain.make(f.getName(), v);
@@ -274,12 +272,15 @@ public abstract class Chain {
     //=============================================================
     
     /**
-     * 添加一个特殊节点, 如果value非空,则有3个情况:<p>
+     * 添加一个特殊节点, 如果value非空而且是String类型,则有3个情况:<p>
      * <li>+1 效果如age=age+1</li>
      * <li>-1 效果如count=count-1</li>
      * <li>支持的运算符有 + - *\/ % & ^ |
-     * <li>其他值, 则对value.toString(),效果如 time=todate("XXXXX")</li>
-     * 
+     * <li>其他值, 则对value.toString()</li>
+     * <p/>
+     * <code>Chain chain = Chain.makeSpecial("age", "+1");//输出的SQL会是 age=age+1</code>
+     * <p/>
+     * <code>Chain chain = Chain.makeSpecial("ct", "now()");//输出的SQL会是 ct=now(),但不建议用依赖特定数据库的now(),仅供演示.</code>
      * @since 1.b.44
      */
     public abstract Chain addSpecial(String name, Object value);
@@ -356,7 +357,9 @@ public abstract class Chain {
         public boolean isSpecial() {
             Entry entry = head;
             do {
-                if(entry.special) return true;
+                if(entry.special) {
+                    return true;
+                }
             } while ((entry = entry.next) != null);
             return false;
         }
@@ -375,7 +378,7 @@ public abstract class Chain {
                 while (current != null) {
                     MappingField ef = entity.getField(current.name);
                     if (null != ef) {
-                        current.name = ef.getColumnName();
+                        current.name = ef.getColumnNameInSql();
                     }
                     current = current.next;
                 }

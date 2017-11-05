@@ -1,5 +1,6 @@
 package org.nutz.http;
 
+import java.nio.charset.Charset;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -11,7 +12,7 @@ import org.nutz.json.JsonFormat;
 
 public class Header {
 
-    private Header() {
+    protected Header() {
         items = new HashMap<String, String>();
     }
 
@@ -67,14 +68,7 @@ public class Header {
 
     public static Header create() {
         Header header = new Header();
-        header.set("User-Agent", "Nutz.Robot");
-        header.set("Accept-Encoding", "gzip,deflate");
-        header.set("Accept", "text/xml,application/xml,application/xhtml+xml,text/html;"
-                             + "q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5");
-        header.set("Accept-Language", "en-US,en,zh,zh-CN");
-        header.set("Accept-Charset", "ISO-8859-1,*,utf-8");
-        header.set("Connection", "keep-alive");
-        header.set("Cache-Control", "max-age=0");
+        header.addAll(Http.DEFAULT_HEADERS);
         return header;
     }
 
@@ -90,5 +84,27 @@ public class Header {
         if (value == null)
             return defaultValue;
         return Integer.parseInt(value);
+    }
+    
+    public Header asJsonContentType() {
+        return this.asJsonContentType(null);
+    }
+    
+    public Header asFormContentType() {
+        return this.asFormContentType(null);
+    }
+    
+    public Header asJsonContentType(String enc) {
+        if (enc == null)
+            enc = Charset.defaultCharset().name();
+        set("Content-Type", "application/json; charset="+enc.toUpperCase());
+        return this;
+    }
+    
+    public Header asFormContentType(String enc) {
+        if (enc == null)
+            enc = Charset.defaultCharset().name();
+        set("Content-Type", "application/x-www-form-urlencoded; charset="+enc.toUpperCase());
+        return this;
     }
 }

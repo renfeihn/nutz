@@ -1,7 +1,10 @@
 package org.nutz.mvc;
 
 import java.io.IOException;
+import java.io.Reader;
+import java.io.UnsupportedEncodingException;
 import java.io.Writer;
+import java.net.URLDecoder;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -12,12 +15,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
+import org.nutz.Nutz;
 import org.nutz.ioc.Ioc;
 import org.nutz.ioc.IocContext;
 import org.nutz.json.Json;
 import org.nutz.json.JsonFormat;
 import org.nutz.lang.Strings;
 import org.nutz.lang.util.Context;
+import org.nutz.lang.util.NutMap;
 import org.nutz.mvc.config.AtMap;
 import org.nutz.mvc.impl.NutMessageMap;
 import org.nutz.mvc.ioc.SessionIocContext;
@@ -35,6 +40,17 @@ public abstract class Mvcs {
 
     public static final String MSG = "msg";
     public static final String LOCALE_KEY = "nutz_mvc_localization_key";
+
+    // PS: 如果这个修改导致异常,请报issue,并将这个变量设置为true
+    public static boolean disableFastClassInvoker = false;
+    // 实现显示行号, 如果禁用, 轻微加速启动
+    public static boolean DISPLAY_METHOD_LINENUMBER = true;
+    // 如果一个Resp已经commit过了,那么是否跳过渲染呢
+    public static boolean SKIP_COMMITTED = false;
+    
+    public static boolean DISABLE_X_POWERED_BY = false;
+    
+    public static String X_POWERED_BY = "nutz/"+Nutz.version()+" <nutzam.com>";
 
     // ====================================================================
 
@@ -90,8 +106,7 @@ public abstract class Mvcs {
      * @return 当前会话的本地字符串集合的键值；如果当前 HTTP 会话不存在，则返回 null
      */
     public static String getLocalizationKey() {
-        HttpSession sess = getHttpSession(false);
-        return null == sess ? null : (String) sess.getAttribute(LOCALE_KEY);
+        return (String) getSessionAttrSafe(LOCALE_KEY);
     }
 
     /**
@@ -472,10 +487,54 @@ public abstract class Mvcs {
     public static Context reqt() {
         return ctx().reqCtx();
     }
-
-    /** 在入口方法调用时,是否禁用1.b.51新加入的FastClass功能, 默认禁用 */
-    // PS: 如果这个修改导致异常,请报issue,并将这个变量设置为true
-    public static boolean disableFastClassInvoker = true;
     
-    public static boolean DISPLAY_METHOD_LINENUMBER = true;
+    public static Object getSessionAttrSafe(String key) {
+        try {
+            HttpSession session = getHttpSession(false);
+            return session != null ? session.getAttribute(key) : null;
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+    
+    public static void setSessionAttrSafe(String key, Object val, boolean sessionCreate) {
+        try {
+            HttpSession session = getHttpSession(sessionCreate);
+            if (session != null)
+                session.setAttribute(key, val);
+        }
+        catch (Exception e) {
+        }
+    }
+    
+    public static NutMap toParamMap(Reader r, String enc) throws IOException {
+        try {
+            NutMap map = new NutMap();
+            char[] buf = new char[1];
+            StringBuilder sb = new StringBuilder();
+            while (true) {
+                int len = r.read(buf);
+                if (len == 0)
+                    continue;
+                if (buf[0] == '&' || len < 0) {
+                    String[] tmp = sb.toString().split("=");
+                    if (tmp != null && tmp.length == 2) {
+                        map.put(URLDecoder.decode(tmp[0], enc), URLDecoder.decode(tmp[1], enc));
+                    }
+                    if (len < 0)
+                        break;
+                    sb.setLength(0);
+                } else {
+                    sb.append(buf[0]);
+                }
+            }
+            return map;
+        }
+        catch (UnsupportedEncodingException e) {
+            throw new IOException(e);
+        }
+    }
+    
+    
 }

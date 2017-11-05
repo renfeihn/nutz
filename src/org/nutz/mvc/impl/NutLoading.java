@@ -2,12 +2,11 @@ package org.nutz.mvc.impl;
 
 import java.io.File;
 import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
@@ -27,6 +26,7 @@ import org.nutz.log.Log;
 import org.nutz.log.Logs;
 import org.nutz.mvc.ActionChainMaker;
 import org.nutz.mvc.ActionInfo;
+import org.nutz.mvc.EntryDeterminer;
 import org.nutz.mvc.Loading;
 import org.nutz.mvc.LoadingException;
 import org.nutz.mvc.MessageLoader;
@@ -36,8 +36,8 @@ import org.nutz.mvc.SessionProvider;
 import org.nutz.mvc.Setup;
 import org.nutz.mvc.UrlMapping;
 import org.nutz.mvc.ViewMaker;
-import org.nutz.mvc.annotation.At;
 import org.nutz.mvc.annotation.ChainBy;
+import org.nutz.mvc.annotation.Determiner;
 import org.nutz.mvc.annotation.IocBy;
 import org.nutz.mvc.annotation.Localization;
 import org.nutz.mvc.annotation.SessionBy;
@@ -72,6 +72,7 @@ public class NutLoading implements Loading {
                 || config.getServletContext().getMinorVersion() > 4)
                 log.debugf(" - ContextPath     : %s", config.getServletContext().getContextPath());
             log.debugf(" - context.tempdir : %s", config.getAttribute("javax.servlet.context.tempdir"));
+            log.debugf(" - MainModule      : %s", config.getMainModule().getName());
         }
         /*
          * 准备返回值
@@ -187,15 +188,15 @@ public class NutLoading implements Loading {
         /*
          * 分析所有的子模块
          */
+        // fix issue #1337
+        Determiner ann = mainModule.getAnnotation(Determiner.class);
+        EntryDeterminer determiner = null == ann ? new NutEntryDeterminer() : Loadings.evalObj(config, ann.value(), ann.args());
+        if (log.isDebugEnabled())
+            log.debugf("Use %s as EntryMethodDeterminer", determiner.getClass().getName());
         for (Class<?> module : modules) {
             ActionInfo moduleInfo = Loadings.createInfo(module).mergeWith(mainInfo);
             for (Method method : module.getMethods()) {
-                /*
-                 * public 并且声明了 @At 的当前模块函数，且非继承函数，非Bridge函数，才是入口函数
-                 */
-                if (!Modifier.isPublic(method.getModifiers()) || method.isBridge()
-                    || Mirror.getAnnotationDeep(method, At.class) == null
-                    || method.getDeclaringClass() != module)
+                if (!determiner.isEntry(module, method))
                     continue;
                 // 增加到映射中
                 ActionInfo info = Loadings.createInfo(method).mergeWith(moduleInfo);
@@ -407,7 +408,7 @@ public class NutLoading implements Loading {
             if (sb.args() != null && sb.args().length == 1 && sb.args()[0].startsWith("ioc:"))
                 sp = config.getIoc().get(sb.value(), sb.args()[0].substring(4));
             else
-                sp = Mirror.me(sb.value()).born(sb.args());
+                sp = Mirror.me(sb.value()).born((Object[])sb.args());
             if (log.isInfoEnabled())
                 log.info("SessionBy --> " + sp);
             config.setSessionProvider(sp);

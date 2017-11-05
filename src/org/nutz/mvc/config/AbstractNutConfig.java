@@ -39,6 +39,8 @@ public abstract class AbstractNutConfig implements NutConfig {
     
     protected ViewMaker[] viewMakers;
     
+    protected Class<?> mainModule;
+    
     public AbstractNutConfig(ServletContext context) {
         Scans.me().init(context);
         Json.clearEntityCache();
@@ -119,13 +121,13 @@ public abstract class AbstractNutConfig implements NutConfig {
     }
 
     public Class<?> getMainModule() {
+        if (mainModule != null)
+            return mainModule;
         String name = Strings.trim(getInitParameter("modules"));
         try {
-            Class<?> mainModule = null;
             if (Strings.isBlank(name))
             	throw new NutConfigException("You need declare 'modules' parameter in your context configuration file or web.xml ! Only found -> " + getInitParameterNames());
             mainModule = Lang.loadClass(name);
-            log.debugf("MainModule: <%s>", mainModule.getName());
             return mainModule;
         }
         catch (NutConfigException e) {
@@ -178,4 +180,8 @@ public abstract class AbstractNutConfig implements NutConfig {
 	public ViewMaker[] getViewMakers() {
 		return viewMakers;
 	}
+	
+	public void setMainModule(Class<?> mainModule) {
+        this.mainModule = mainModule;
+    }
 }

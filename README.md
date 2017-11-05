@@ -1,4 +1,5 @@
-### Nutz 
+
+<p align="center"><a href="https://nutz.cn" target="_blank"><img width="100" src="https://github.com/nutzam/nutz/raw/master/doc/ci/logo.png"></a></p>
 
 [![Build Status](https://travis-ci.org/nutzam/nutz.png?branch=master)](https://travis-ci.org/nutzam/nutz)
 [![Circle CI](https://circleci.com/gh/nutzam/nutz/tree/master.svg?style=svg)](https://circleci.com/gh/nutzam/nutz/tree/master)
@@ -7,126 +8,49 @@
 [![codecov.io](http://codecov.io/github/nutzam/nutz/coverage.svg?branch=master)](http://codecov.io/github/nutzam/nutz?branch=master)
 [![GitHub release](https://img.shields.io/github/release/nutzam/nutz.svg)](https://github.com/nutzam/nutz/releases)
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
+[![Skywalking Tracing](https://img.shields.io/badge/Skywalking%20Tracing-enable-brightgreen.svg)](https://github.com/OpenSkywalking/skywalking)
 
+## 项目目标
 
-对于 Java 程序员来说，除 SSH 之外，的另一个选择
+在力所能及的情况下，最大限度的提高 Java 开发人员的生产力。
 
-### Talk is cheap. Show me the code!!
+*Talk is cheap. Show me the code!!*
 
-### 项目目标
+Nutz遵循Apache协议,完全开源,文档齐全,永远免费(商用也是)
 
-在力所能及的情况下，最大限度的提高 Web 开发人员的生产力。
+## 项目各种资源地址
 
-### 项目各种资源地址
-
-*   [项目官网](http://nutzam.com)
-*   [Github](https://github.com/nutzam/nutz)
-*   [Nutz社区](https://nutz.cn/) 有问必答,秒回复
+*   [项目官网](https://nutzam.com)
+*   [Nutz社区](https://nutz.cn/) 秒回, 就是这么爽
 *   在线文档
-    *   [官网](http://nutzam.com/core/nutz_preface.html) 发布新版本时更新
-    *   [GitHub Pages](http://nutzam.github.io/nutz/) 基本做到文档有变动就更新
-*   [视频+官方发布](http://downloads.nutzam.com/)
-*   [各种插件](http://github.com/nutzam/nutzmore)
-*   [好玩的Nutzbook](http://nutzbook.wendal.net) 引导式nutz入门书
-*	[在线javadoc](http://nutzam.com/javadoc/)
-*	[案例提交](https://github.com/nutzam/nutz/issues/819) 企业项目及开源项目
+    *   [官网](https://nutzam.com/core/nutz_preface.html) Nutz手册,涵盖方方面面
+    *   [w3cschool上的文档](http://www.w3cschool.cn/nutz/) [由vincent109维护](https://github.com/vincent109)
+*   [各种插件](http://github.com/nutzam/nutzmore) 您能想到的都有哦(基本上`^_^`)
+*   [好玩的Nutzbook](http://nutzbook.wendal.net) 几分钟搭建一个demo有何不可? 入门从这里开始
+*	[在线javadoc](https://nutzam.com/javadoc/) 注释就是这么全
 
-现已通过 Oracle JDK 8、Oracle JDK 7、OpenJDK 7、OpenJDK 6下的 maven 测试，请查阅 [Travis CI地址](https://travis-ci.org/nutzam/nutz)、 [CircleCI地址](https://circleci.com/gh/nutzam/nutz)
+## Nutz生态系统
 
-## 基于注解配置
-
-MainModule主配置类
-
-```java
-@SetupBy(value=MainSetup.class)
-@IocBy(type=ComboIocProvider.class, args={"*js", "ioc/",
-										   "*anno", "net.wendal.nutzbook",
-										   "*quartz",
-										   "*async",
-										   "*tx"
-										   })
-@Modules(scanPackage=true)
-@ChainBy(args="mvc/nutzbook-mvc-chain.js")
-@Ok("json:full")
-@Fail("jsp:jsp.500")
-@Localization(value="msg/", defaultLocalizationKey="zh-CN")
-@Views({BeetlViewMaker.class})
-@SessionBy(ShiroSessionProvider.class)
-public class MainModule {
-}
-```
-
-入口方法
-
-```java
-  @At
-  @RequiresPermissions("user:delete")
-  @Aop(TransAop.READ_COMMITTED)
-  @Ok("json")
-  public Object delete(@Param("id")int id) {
-    int me = Toolkit.uid();
-    if (me == id) {
-      return new NutMap().setv("ok", false).setv("msg", "不能删除当前用户!!");
-    }
-    dao.delete(User.class, id); // 再严谨一些的话,需要判断是否为>0
-    dao.clear(UserProfile.class, Cnd.where("userId", "=", me));
-    return new NutMap().setv("ok", true);
-  }
-```
-
-非MVC环境下的NutDao -- DaoUp类
-
-```java
-// 初始化DaoUp类
-DaoUp.me().init(("db.properties"));
-
-Dao dao = DaoUp.me().dao();
-dao.insert("t_user", Chain.make("id", 1).add("nm", "wendal").add("age", 30));
-List<Record> users = dao.query("t_user", Cnd.where("age", "<", 25).desc("nm"));
-
-List<User> girls = dao.count(User.class, Cnd.where("age", "<", 25).and("sex", "=", "female"));
-
-// 程序结束前销毁
-DaoUp.me().close();
-```
+![nutz系统架构](nutz-graph.png)
 
 ### Maven 资源
 
-稳定发布版本
-
 ```xml
 		<dependency>
 			<groupId>org.nutz</groupId>
 			<artifactId>nutz</artifactId>
-			<version>1.r.55</version>
+			<version>1.r.62</version>
 		</dependency>
 ```
 
-快照版本在每次提交后会自动deploy到sonatype快照库,享受各种bug fix和新功能
 
-```xml
-	<repositories>
-		<repository>
-			<id>ossrh</id>
-			<url>https://oss.sonatype.org/content/repositories/snapshots</url>
-			<snapshots>
-				<enabled>true</enabled>
-			</snapshots>
-		</repository>
-	</repositories>
-	<dependencies>
-		<dependency>
-			<groupId>org.nutz</groupId>
-			<artifactId>nutz</artifactId>
-			<version>1.r.56-SNAPSHOT</version>
-		</dependency>
-		<!-- 其他依赖 -->
-	</dependencies>
+详情: https://nutzam.com/core/basic/maven.html
+
+## Gradle 依赖
+
+```gradle
+compile(group: 'org.nutz', name: 'nutz', version:'1.r.62')
 ```
-
-也可以将repositories配置放入$HOME/.m2/settings.xml中
-
-或者直接去[快照库下载](https://oss.sonatype.org/content/repositories/snapshots/org/nutz/nutz/1.r.55-SNAPSHOT/)
 
 
 ## Sponsorship
@@ -142,3 +66,6 @@ JetBrains IntelliJ IDEA
 
 http://www.jetbrains.com
 
+## 关于我们
+
+广州市文尔软件科技有限公司

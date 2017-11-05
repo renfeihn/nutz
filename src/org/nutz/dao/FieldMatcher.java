@@ -1,5 +1,8 @@
 package org.nutz.dao;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import org.nutz.lang.Strings;
@@ -139,12 +142,12 @@ public class FieldMatcher {
      * @return true,如果可用
      */
     public boolean match(String str) {
-        if (null != locked)
-            if (locked.matcher(str).find())
-                return false;
-        if (null != actived)
-            if (!actived.matcher(str).find())
-                return false;
+        if (null != locked && locked.matcher(str).find()) {
+            return false;
+        }
+        if (null != actived && !actived.matcher(str).find()) {
+            return false;
+        }
         return true;
     }
 
@@ -302,8 +305,17 @@ public class FieldMatcher {
         return ignoreBlankStr;
     }
 
-    public void setIgnoreBlankStr(boolean ignoreBlankStr) {
+    public FieldMatcher setIgnoreBlankStr(boolean ignoreBlankStr) {
         this.ignoreBlankStr = ignoreBlankStr;
+        return this;
     }
 
+    public static FieldMatcher simple(String ...fields) {
+        final Set<String> m = new HashSet<String>(Arrays.asList(fields));
+        return new FieldMatcher() {
+            public boolean match(String str) {
+                return m.contains(str);
+            }
+        };
+    }
 }

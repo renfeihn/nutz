@@ -26,6 +26,7 @@ import org.nutz.lang.Maths;
 import org.nutz.lang.Mirror;
 import org.nutz.lang.Strings;
 import org.nutz.lang.util.Context;
+import org.nutz.lang.util.NutMap;
 import org.nutz.repo.Base64;
 
 public class El2Test {
@@ -546,5 +547,51 @@ public class El2Test {
         list.add("abc");
         assertEquals("http://wendal.net", El.eval(Lang.context().set("ctx", map), "ctx['wendal']"));
         assertEquals("abc", El.eval(Lang.context().set("list", list), "list[0]"));
+    }
+    
+
+    @Test
+    public void test_el() {
+        El el = new El("'hi,'+name");
+        Context ctx = Lang.context();
+        ctx.set("name", "wendal");
+        assertEquals("hi,wendal", el.eval(ctx));
+    }
+    
+    @Test
+    public void test_el2() throws Exception {
+        El el = new El("sayhi(name)");
+        Context ctx = Lang.context();
+        ctx.set("name", "wendal");
+        ctx.set("sayhi", getClass().getMethod("sayhi", String.class));
+        assertEquals("hi,wendal", el.eval(ctx));
+    }
+    
+    public static String sayhi(String name) {
+        return "hi,"+name;
+    }
+    
+    @Test(timeout=5000, expected=Exception.class)
+    public void test_el_issue1185() {
+        Context context = Lang.context();
+        El.eval(context, "a.b)*0.30");
+    }
+    
+    @Test
+    public void test_issue_1307() {
+        //assertTrue((Boolean)El.eval("0 == 0"));
+        assertTrue((Boolean)El.eval("0 == 0.0"));
+    }
+    
+    @Test
+    public void test_issue_1229() {
+        Context ctx = Lang.context();
+        ctx.set("obj", new NutMap("pet", null).setv("girls", new ArrayList<String>()));
+        El.eval(ctx, "obj.pet");
+        El.eval(ctx, "!!(obj.pet)");
+        assertTrue((Boolean)El.eval(ctx, "!!(obj.pet.name) == null"));
+        assertTrue((Boolean)El.eval(ctx, "!(!(!!(obj.pet.name) == null))"));
+        assertEquals("wendal", El.eval(ctx, "!!(obj.pet.name) ||| 'wendal'"));
+        assertEquals("dog", El.eval(ctx, "!!(obj.girls) ||| 'dog'"));
     }
 }

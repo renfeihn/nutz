@@ -21,6 +21,9 @@ import org.nutz.ioc.meta.IocObject;
 import org.nutz.json.Json;
 import org.nutz.lang.Lang;
 import org.nutz.lang.Mirror;
+import org.nutz.lang.Strings;
+import org.nutz.lang.util.AbstractLifeCycle;
+import org.nutz.lang.util.LifeCycle;
 import org.nutz.log.Log;
 import org.nutz.log.Logs;
 
@@ -30,7 +33,7 @@ import org.nutz.log.Logs;
  * @author wendal(wendal1985@gmail.com)
  * 
  */
-public class ComboIocLoader implements IocLoader {
+public class ComboIocLoader extends AbstractLifeCycle implements IocLoader {
 
     private static final Log log = Logs.get();
 
@@ -58,7 +61,6 @@ public class ComboIocLoader implements IocLoader {
      * @throws ClassNotFoundException
      *             如果*开头的参数所指代的类不存在
      */
-    @SuppressWarnings("unchecked")
     public ComboIocLoader(String... args) throws ClassNotFoundException {
         if (loaders.isEmpty()) {
             loaders.put("js", JsonLoader.class);
@@ -71,16 +73,6 @@ public class ComboIocLoader implements IocLoader {
             loaders.put("props", PropertiesIocLoader.class);
             loaders.put("properties", PropertiesIocLoader.class);
             loaders.put("async", AsyncAopIocLoader.class);
-            try {
-                loaders.put("cache",
-                            (Class<? extends IocLoader>) Lang.loadClass("org.nutz.jcache.NutCacheIocLoader"));
-            }
-            catch (ClassNotFoundException e) {}
-            try {
-                loaders.put("quartz",
-                            (Class<? extends IocLoader>) Lang.loadClass("org.nutz.integration.quartz.QuartzIocLoader"));
-            }
-            catch (ClassNotFoundException e) {}
         }
         ArrayList<String> argsList = null;
         String currentClassName = null;
@@ -100,21 +92,31 @@ public class ComboIocLoader implements IocLoader {
         }
         if (currentClassName != null)
             createIocLoader(currentClassName, argsList);
-
-        Set<String> beanNames = new HashSet<String>();
-        for (IocLoader loader : iocLoaders) {
-            for (String beanName : loader.getName()) {
-                if (!beanNames.add(beanName) && log.isWarnEnabled())
-                    log.warnf("Found Duplicate beanName=%s, pls check you config!", beanName);
-            }
-        }
     }
 
     @SuppressWarnings("unchecked")
     private void createIocLoader(String className, List<String> args) throws ClassNotFoundException {
         Class<? extends IocLoader> klass = loaders.get(className);
-        if (klass == null)
-            klass = (Class<? extends IocLoader>) Lang.loadClass(className);
+        if (klass == null) {
+            if (!className.contains(".")) {
+                Set<String> _names = new HashSet<String>();
+                String uccp = Strings.upperFirst(className);
+                _names.add(String.format("org.nutz.integration.%s.%sIocLoader", className, uccp));
+                _names.add(String.format("org.nutz.integration.%s.%sAopConfigure", className, uccp));
+                _names.add(String.format("org.nutz.plugins.%s.%sIocLoader", className, uccp));
+                _names.add(String.format("org.nutz.plugins.%s.%sAopConfigure", className, uccp));
+                // 寻找插件或集成类 @since 1.r.57
+                for (String _className : _names) {
+                    klass = (Class<? extends IocLoader>) Lang.loadClassQuite(_className);
+                    if (klass != null) {
+                        log.debug("found " + className + " -- " + _className);
+                        break;
+                    }
+                }
+            }
+            if (klass == null)
+                klass = (Class<? extends IocLoader>) Lang.loadClass(className);
+        }
         iocLoaders.add((IocLoader) Mirror.me(klass).born(args.toArray(new Object[args.size()])));
     }
 
@@ -145,10 +147,22 @@ public class ComboIocLoader implements IocLoader {
         for (IocLoader iocLoader : iocLoaders)
             if (iocLoader.has(name)) {
                 IocObject iocObject = iocLoader.load(loading, name);
-                if (log.isDebugEnabled())
-                    log.debugf("Found IocObject(%s) in IocLoader(%s)",
-                               name,
-                               iocLoader.getClass().getSimpleName() + "@" + iocLoader.hashCode());
+                if (log.isDebugEnabled()) {
+                    // TODO 弄成更好看的格式,方便debug
+                    String printName;
+                    if (iocLoader instanceof AnnotationIocLoader) {
+                        String packages = Arrays.toString(((AnnotationIocLoader)iocLoader).getPackages());
+                        printName = "AnnotationIocLoader(packages="+packages+")";
+                    } else if (JsonLoader.class.equals(iocLoader.getClass())
+                            && ((JsonLoader)iocLoader).getPaths() != null) {
+                        String paths = Arrays.toString(((JsonLoader)iocLoader).getPaths());
+                        printName = "JsonLoader(paths="+paths+")";
+                    } else {
+                        printName = iocLoader.getClass().getSimpleName() + "@" + iocLoader.hashCode();
+                    }
+                    log.debugf("Found IocObject(%s) in %s",
+                               name, printName);
+                }
                 return iocObject;
             }
         throw new ObjectLoadException("Object '" + name + "' without define!");
@@ -169,7 +183,7 @@ public class ComboIocLoader implements IocLoader {
     /**
      * 类别名
      */
-    private static Map<String, Class<? extends IocLoader>> loaders = new HashMap<String, Class<? extends IocLoader>>();
+    protected static Map<String, Class<? extends IocLoader>> loaders = new HashMap<String, Class<? extends IocLoader>>();
 
     // TODO 这个方法好好整理一下 ...
     public String toString() {
@@ -185,5 +199,19 @@ public class ComboIocLoader implements IocLoader {
         }
         sb.append("}");
         return sb.toString();
+    }
+    
+    public void init() throws Exception {
+        for (IocLoader loader : iocLoaders) {
+            if (loader instanceof LifeCycle)
+                ((LifeCycle) loader).init();
+        }
+    }
+    
+    public void depose() throws Exception {
+        for (IocLoader loader : iocLoaders) {
+            if (loader instanceof LifeCycle)
+                ((LifeCycle) loader).depose();
+        }
     }
 }

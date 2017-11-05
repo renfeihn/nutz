@@ -15,6 +15,7 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.nutz.conf.NutConf;
 import org.nutz.lang.Lang;
 import org.nutz.lang.Strings;
 import org.nutz.lang.util.Context;
@@ -35,7 +36,7 @@ public class NutFilter implements Filter {
 
     protected ActionHandler handler;
 
-    protected static final String IGNORE = "^.+\\.(jsp|png|gif|jpg|js|css|jspx|jpeg|swf|ico)$";
+    protected static final String IGNORE = "^.+\\.(jsp|png|gif|jpg|js|css|jspx|jpeg|swf|ico|map)$";
 
     protected Pattern ignorePtn;
 
@@ -62,6 +63,9 @@ public class NutFilter implements Filter {
     
     public void init(FilterConfig conf) throws ServletException {
     	try {
+    	    if ("disable".equals(conf.getInitParameter("fast-class"))) {
+    	        NutConf.USE_FASTCLASS = false;
+    	    }
     		_init(conf);
     	} finally {
     		Mvcs.set(null, null, null);
@@ -139,10 +143,10 @@ public class NutFilter implements Filter {
     
     /**
      * 过滤请求. 过滤顺序(ignorePtn,exclusionsSuffix,exclusionsPrefix,exclusionPaths)
-     * @param matchUrl
-     * @return
-     * @throws IOException
-     * @throws ServletException
+     * @param matchUrl 待匹配URL
+     * @return 需要排除则返回true
+     * @throws IOException 不太可能抛出
+     * @throws ServletException 不太可能抛出
      */
     protected boolean isExclusion(String matchUrl) throws IOException, ServletException {
     	if (ignorePtn != null && ignorePtn.matcher(matchUrl).find()) {
@@ -166,6 +170,8 @@ public class NutFilter implements Filter {
 
     public void doFilter(final ServletRequest req, final ServletResponse resp, final FilterChain chain)
             throws IOException, ServletException {
+        if (!Mvcs.DISABLE_X_POWERED_BY)
+            ((HttpServletResponse)resp).setHeader("X-Powered-By", Mvcs.X_POWERED_BY);
     	ServletContext prCtx = Mvcs.getServletContext();
     	Mvcs.setServletContext(sc);
     	if (proxyFilter != null) {

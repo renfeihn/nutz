@@ -12,9 +12,9 @@ import java.util.Map;
 
 import org.nutz.dao.Condition;
 import org.nutz.dao.entity.Entity;
+import org.nutz.dao.entity.Record;
 import org.nutz.dao.impl.sql.pojo.AbstractPItem;
 import org.nutz.dao.impl.sql.pojo.StaticPItem;
-import org.nutz.dao.jdbc.Jdbcs;
 import org.nutz.dao.jdbc.ValueAdaptor;
 import org.nutz.dao.pager.Pager;
 import org.nutz.dao.sql.DaoStatement;
@@ -30,6 +30,8 @@ import org.nutz.lang.Strings;
 
 public class NutSql extends NutStatement implements Sql {
 
+    private static final long serialVersionUID = 1L;
+
     protected String sourceSql;
     protected VarSet vars;
     protected List<VarSet> rows;
@@ -39,6 +41,7 @@ public class NutSql extends NutStatement implements Sql {
     protected VarIndex paramIndex;
     protected Map<String, ValueAdaptor> customValueAdaptor;
     protected List<PItem> items;
+    protected char[] placeholder;
 
     public NutSql(String source) {
         this(source, null);
@@ -56,7 +59,7 @@ public class NutSql extends NutStatement implements Sql {
 
     public void setSourceSql(String sql) {
         this.sourceSql = sql;
-        SqlLiteral literal = new SqlLiteral().valueOf(sql);
+        SqlLiteral literal = literal();
         this.varIndex = literal.getVarIndexes();
         this.paramIndex = literal.getParamIndexes();
         if (getSqlType() == null)
@@ -193,17 +196,13 @@ public class NutSql extends NutStatement implements Sql {
         return sourceSql;
     }
 
-    public String toString() {
-        return super.toStatement(this.getParamMatrix(), this.toPreparedStatement());
-    }
-    
-    public String forPrint() {
-        return super.toString();
-    }
-
     class SqlVarPItem extends AbstractPItem {
 
-        public String name;
+        /**
+		 * 
+		 */
+		private static final long serialVersionUID = 2655530650031939556L;
+		public String name;
 
         public SqlVarPItem(String name) {
             this.name = name;
@@ -256,7 +255,11 @@ public class NutSql extends NutStatement implements Sql {
 
     class SqlParamPItem extends AbstractPItem {
 
-        public String name;
+        /**
+		 * 
+		 */
+		private static final long serialVersionUID = 1494513192752663060L;
+		public String name;
 
         public SqlParamPItem(String name) {
             this.name = name;
@@ -269,7 +272,7 @@ public class NutSql extends NutStatement implements Sql {
             } else if (val instanceof PItem) {
                 ((PItem) val).joinSql(en, sb);
             } else if (val.getClass().isArray()) {
-                sb.append(Strings.dup("?,", Lang.length(val)));
+                sb.append(Strings.dup("?,", Lang.eleSize(val)));
                 sb.setLength(sb.length() - 1);
             } else if (val instanceof Condition) {
                 sb.append(' ').append(Pojos.formatCondition(en, (Condition) val));
@@ -287,23 +290,30 @@ public class NutSql extends NutStatement implements Sql {
                 }
             }
             Object val = rows.get(0).get(name);
+            if (val == null && rows.size() > 1) {
+                for (VarSet vs : rows) {
+                    val = vs.get(name);
+                    if (val != null)
+                        break;
+                }
+            }
             if (val == null) {
-                adaptors[off] = Jdbcs.getAdaptorBy(null);
+                adaptors[off] = getAdapterBy(null);
                 return off + 1;
             } else if (val instanceof PItem) {
                 return ((PItem) val).joinAdaptor(en, adaptors, off);
             } else if (val.getClass().isArray()) {
-                int len = Lang.length(val);
+                int len = Lang.eleSize(val);
                 Lang.each(val, new Each<Object>() {
                     public void invoke(int index, Object ele, int length) {
-                        adaptors[off + index] = Jdbcs.getAdaptorBy(ele);
+                        adaptors[off + index] = getAdapterBy(ele);
                     }
                 });
                 return off + len;
                 // } else if (val instanceof Condition) {
 
             } else {
-                adaptors[off] = Jdbcs.getAdaptorBy(val);
+                adaptors[off] = getAdapterBy(val);
                 return off + 1;
             }
         }
@@ -316,7 +326,7 @@ public class NutSql extends NutStatement implements Sql {
             } else if (val instanceof PItem) {
                 return ((PItem) val).joinParams(en, null, params, off);
             } else if (val.getClass().isArray()) {
-                int len = Lang.length(val);
+                int len = Lang.eleSize(val);
                 Lang.each(val, new Each<Object>() {
                     public void invoke(int index, Object ele, int length) {
                         params[off + index] = ele;
@@ -338,7 +348,7 @@ public class NutSql extends NutStatement implements Sql {
             } else if (val instanceof PItem) {
                 return ((PItem) val).paramCount(en);
             } else if (val.getClass().isArray()) {
-                return Lang.length(val);
+                return Lang.eleSize(val);
             } else if (val instanceof Condition) {
                 return 0;
             } else {
@@ -347,8 +357,13 @@ public class NutSql extends NutStatement implements Sql {
         }
     }
     
-    SqlLiteral literal() {
-        return new SqlLiteral().valueOf(sourceSql);
+    /**
+     * 若需要定制参数字符和变量字符,覆盖本方法,通过SqlLiteral的构造方法指定之
+     */
+    protected SqlLiteral literal() {
+        if (placeholder == null)
+            return new SqlLiteral().valueOf(sourceSql);
+        return new SqlLiteral(placeholder[0], placeholder[1]).valueOf(sourceSql);
     }
     
     public Sql setParam(String name, Object value) {
@@ -359,5 +374,15 @@ public class NutSql extends NutStatement implements Sql {
     public Sql setVar(String name, Object value) {
         vars().set(name, value);
         return this;
+    }
+    
+    public Record getOutParams() {
+        return getContext().attr(Record.class, "OUT");
+    }
+    
+    public Sql changePlaceholder (char param, char var) {
+        placeholder = new char[]{param, var};
+        setSourceSql(getSourceSql());
+        return null;
     }
 }

@@ -49,6 +49,7 @@ import org.nutz.dao.impl.entity.macro.SqlFieldMacro;
 import org.nutz.dao.jdbc.JdbcExpert;
 import org.nutz.dao.jdbc.Jdbcs;
 import org.nutz.dao.sql.Pojo;
+import org.nutz.dao.util.Daos;
 import org.nutz.lang.Lang;
 import org.nutz.lang.Mirror;
 import org.nutz.lang.Strings;
@@ -112,7 +113,8 @@ public class AnnotationEntityMaker implements EntityMaker {
         String tableName = null;
         if (null == ti.annTable) {
         	tableName = Strings.lowerWord(type.getSimpleName(), '_');
-        	log.warnf("No @Table found, fallback to use table name='%s' for type '%s'", tableName, type.getName());
+        	if (null == ti.annView)
+        	    log.warnf("No @Table found, fallback to use table name='%s' for type '%s'", tableName, type.getName());
         } else {
         	tableName = ti.annTable.value();
         }
@@ -214,6 +216,7 @@ public class AnnotationEntityMaker implements EntityMaker {
         List<MappingInfo> tmp = new ArrayList<MappingInfo>(infos.size());
         MappingInfo miId = null;
         MappingInfo miName = null;
+        MappingInfo miVersion = null;//wjw(2017-04-10),add,version
         for (MappingInfo mi : infos) {
             if (mi.annId != null) {
             	if (miId != null) {
@@ -227,8 +230,16 @@ public class AnnotationEntityMaker implements EntityMaker {
             	}
                 miName = mi;
             }
-            else
-                tmp.add(mi);
+            else{
+            	//wjw(2017-04-10),add,version
+           	    if(mi.annColumn != null && mi.annColumn.version()){
+                    if(miVersion != null){
+                        throw new DaoException("Allows only a single @Version ! " + type);
+                	}
+                	miVersion = mi;
+                }
+            	tmp.add(mi);
+            }
         }
         if (miName != null)
             tmp.add(0, miName);
@@ -353,12 +364,13 @@ public class AnnotationEntityMaker implements EntityMaker {
         // 字段的数据库名
         if (null == info.annColumn || Strings.isBlank(info.annColumn.value())){
             columnName = info.name;
+            if((null != info.annColumn && info.annColumn.hump()) || Daos.FORCE_HUMP_COLUMN_NAME){
+                columnName = Strings.lowerWord(columnName, '_');
+            }
         }else{
             columnName = info.annColumn.value();
         }
-        if(null != info.annColumn && info.annColumn.hump()){
-            columnName = Strings.lowerWord(columnName, '_');
-        }
+        
         ef.setColumnName(columnName);
         // 字段的注释
         boolean hasColumnComment = null != info.columnComment;
@@ -371,15 +383,16 @@ public class AnnotationEntityMaker implements EntityMaker {
                 ef.setColumnComment(comment);
             }
         }
+        
+        //wjw(2017-04-10),add,version
+        if(null != info.annColumn && info.annColumn.version()){
+        	ef.setAsVersion();
+        }
 
         // Id 字段
         if (null != info.annId) {
             ef.setAsId();
             if (info.annId.auto()) {
-                if (info.annPrev != null) {
-                    // XXX 兼容性改变 1.b.51
-                    log.infof("field %s mark as @Id(auto=true) and @Prev", info.name);
-                }
                 ef.setAsAutoIncreasement();
             }
         }
@@ -423,11 +436,14 @@ public class AnnotationEntityMaker implements EntityMaker {
         // 字段更多定义
         if (null != info.annDefine) {
             // 类型
-            ef.setColumnType(info.annDefine.type());
+            if (info.annDefine.type() != ColType.AUTO)
+                ef.setColumnType(info.annDefine.type());
+            else
+                Jdbcs.guessEntityFieldColumnType(ef);
             // 宽度
             ef.setWidth(info.annDefine.width());
             if (ef.getWidth() == 0 && ef.getColumnType() == ColType.VARCHAR) {
-            	ef.setWidth(50);
+            	ef.setWidth(Daos.DEFAULT_VARCHAR_WIDTH);
             }
             // 精度
             ef.setPrecision(info.annDefine.precision());
@@ -451,7 +467,7 @@ public class AnnotationEntityMaker implements EntityMaker {
             ef.setUpdate(info.annDefine.update());
         }
         // 猜测字段类型
-        else {
+        if (ef.getColumnType() == null) {
             Jdbcs.guessEntityFieldColumnType(ef);
         }
 
@@ -465,15 +481,28 @@ public class AnnotationEntityMaker implements EntityMaker {
         ef.setInjecting(info.injecting);
         ef.setEjecting(info.ejecting);
 
+        // 强制大小?
+        if (Daos.FORCE_UPPER_COLUMN_NAME)
+            ef.setColumnName(ef.getColumnName().toUpperCase());
+        if (Daos.FORCE_WRAP_COLUMN_NAME || (info.annColumn != null && info.annColumn.wrap())) {
+            ef.setColumnNameInSql(expert.wrapKeywork(columnName, true));
+        } 
+        else if (Daos.CHECK_COLUMN_NAME_KEYWORD) {
+            ef.setColumnNameInSql(expert.wrapKeywork(columnName, false));
+        }
     }
 
     private void _evalFieldMacro(Entity<?> en, List<MappingInfo> infos) {
         for (MappingInfo info : infos) {
             // '@Prev' : 预设值
             if (null != info.annPrev) {
-                en.addBeforeInsertMacro(__macro(en.getField(info.name),
+                boolean flag = en.addBeforeInsertMacro(__macro(en.getField(info.name),
                                                 _annToFieldMacroInfo(info.annPrev.els(),
                                                                      info.annPrev.value())));
+                if (flag && null != info.annId && info.annId.auto()) {
+                    log.debugf("Field(%s#%s) autoset as @Id(auto=false)", en.getType().getName(), info.name);
+                    ((NutMappingField)en.getField(info.name)).setAutoIncreasement(false);
+                }
             }
 
             // '@Next' : 后续获取
@@ -484,8 +513,8 @@ public class AnnotationEntityMaker implements EntityMaker {
                 continue;
             }
             // '@Id' : 的自动后续获取
-            else if (null != info.annId && info.annId.auto()) {
-            	if (!expert.isSupportAutoIncrement())
+            else if (null != info.annId && info.annId.auto() && en.getField(info.name).isAutoIncreasement()) {
+            	if (!expert.isSupportAutoIncrement() || !expert.isSupportGeneratedKeys())
             		en.addAfterInsertMacro(expert.fetchPojoId(en, en.getField(info.name)));
             }
         }
@@ -523,7 +552,7 @@ public class AnnotationEntityMaker implements EntityMaker {
                     throw Lang.makeThrow("Fail to find field '%s' in '%s' by @Index(%s:%s)",
                                          indexName,
                                          en.getType().getName(),
-                                         index.getName(),
+                                         index.getName(en),
                                          Lang.concat(idx.fields()));
                 }
                 index.addField(ef);

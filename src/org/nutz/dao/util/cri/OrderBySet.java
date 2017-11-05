@@ -10,9 +10,11 @@ import org.nutz.dao.sql.Pojo;
 
 public class OrderBySet extends NoParamsPItem implements OrderBy {
 
+    private static final long serialVersionUID = 1L;
+
     private List<OrderByItem> list;
 
-    OrderBySet() {
+    protected OrderBySet() {
         list = new ArrayList<OrderByItem>(3);
     }
 
@@ -59,5 +61,14 @@ public class OrderBySet extends NoParamsPItem implements OrderBy {
     
     public String toString() {
     	return toSql(null);
+    }
+    
+    public OrderBy orderBy(String name, String dir) {
+        if ("asc".equalsIgnoreCase(dir)) {
+            this.asc(name);
+        } else {
+            this.desc(name);
+        }
+        return this;
     }
 }

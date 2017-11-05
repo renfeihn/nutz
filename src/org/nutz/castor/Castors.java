@@ -255,12 +255,10 @@ public class Castors {
             throw e;
         }
         catch (Exception e) {
-            throw new FailToCastObjectException(String.format("Fail to cast from <%s> to <%s> for {%s} because:\n%s:%s",
+            throw new FailToCastObjectException(String.format("Fail to cast from <%s> to <%s> for {%s}",
                                                               fromType.getName(),
                                                               toType.getName(),
-                                                              src,
-                                                              e.getClass().getSimpleName(),
-                                                              e.getMessage()),
+                                                              src),
                                                 Lang.unwrapThrow(e));
         }
     }
@@ -456,7 +454,7 @@ public class Castors {
         defaultCastorList.add(org.nutz.castor.castor.Timestamp2SqlDate.class);
         defaultCastorList.add(org.nutz.castor.castor.Timestamp2SqlTime.class);
         defaultCastorList.add(org.nutz.castor.castor.Timestamp2String.class);
-
+        defaultCastorList.add(org.nutz.castor.castor.String2DateFormat.class);
     }
 
     private static Castors one = new Castors();

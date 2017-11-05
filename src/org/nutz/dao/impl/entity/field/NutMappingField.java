@@ -1,8 +1,5 @@
 package org.nutz.dao.impl.entity.field;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-
 import org.nutz.dao.entity.Entity;
 import org.nutz.dao.entity.MappingField;
 import org.nutz.dao.entity.Record;
@@ -13,9 +10,14 @@ import org.nutz.lang.segment.Segment;
 import org.nutz.log.Log;
 import org.nutz.log.Logs;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
 public class NutMappingField extends AbstractEntityField implements MappingField {
 
 	private String columnName;
+	
+	private String columnNameInSql;
 
 	private ColType columnType;
 
@@ -32,6 +34,8 @@ public class NutMappingField extends AbstractEntityField implements MappingField
 	private boolean isId;
 
 	private boolean isName;
+
+	private boolean isVersion;
 
 	private boolean readonly;
 
@@ -217,6 +221,10 @@ public class NutMappingField extends AbstractEntityField implements MappingField
 	public void setAsAutoIncreasement() {
 		this.autoIncreasement = true;
 	}
+	
+	public void setAutoIncreasement(boolean autoIncreasement) {
+        this.autoIncreasement = autoIncreasement;
+    }
 
 	public String getColumnComment() {
 		return columnComment;
@@ -250,4 +258,21 @@ public class NutMappingField extends AbstractEntityField implements MappingField
 		this.update = update;
 	}
 
+	public String getColumnNameInSql() {
+	    if (columnNameInSql != null)
+	        return columnNameInSql;
+	    return columnName;
+	}
+	
+	public void setColumnNameInSql(String columnNameInSql) {
+        this.columnNameInSql = columnNameInSql;
+    }
+
+	public boolean isVersion() {
+		return isVersion;
+	}
+
+	public void setAsVersion() {
+		this.isVersion = true;
+	}
 }

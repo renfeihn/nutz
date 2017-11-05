@@ -1,5 +1,15 @@
 package org.nutz.mvc.adaptor;
 
+import java.io.File;
+import java.io.InputStream;
+import java.io.Reader;
+import java.lang.reflect.Type;
+import java.util.Map;
+
+import javax.servlet.ServletContext;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
 import org.nutz.filepool.FilePool;
 import org.nutz.filepool.UU32FilePool;
 import org.nutz.json.Json;
@@ -9,18 +19,12 @@ import org.nutz.log.Log;
 import org.nutz.log.Logs;
 import org.nutz.mvc.Mvcs;
 import org.nutz.mvc.annotation.Param;
-import org.nutz.mvc.upload.*;
+import org.nutz.mvc.upload.FastUploading;
+import org.nutz.mvc.upload.FieldMeta;
+import org.nutz.mvc.upload.TempFile;
+import org.nutz.mvc.upload.UploadException;
+import org.nutz.mvc.upload.UploadingContext;
 import org.nutz.mvc.upload.injector.*;
-
-import javax.servlet.ServletContext;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-import java.io.File;
-import java.io.InputStream;
-import java.io.Reader;
-import java.lang.reflect.Type;
-import java.util.List;
-import java.util.Map;
 
 /**
  * 自动适配普通表单/文件上传表单/Json表单的数据
@@ -38,8 +42,16 @@ public class WhaleAdaptor extends PairAdaptor {
 
 	public WhaleAdaptor(String path) {
         String appRoot = Mvcs.getServletContext().getRealPath("/");
+        if (appRoot == null) {
+            appRoot = (String) Mvcs.getServletContext().getAttribute("javax.servlet.context.tmpdir");
+            if (appRoot == null) {
+                appRoot = System.getProperty("java.io.tmpdir");
+                if (appRoot == null)
+                    appRoot = "/tmp";
+            }
+        }
         if (path.isEmpty()) {
-            path = "${app.root}WEB-INF/tmp/nutzupload2";
+            path = "${app.root}/WEB-INF/tmp/nutzupload2";
         }
         if (path.contains("${app.root}"))
             path = path.replace("${app.root}", appRoot);
@@ -69,31 +81,29 @@ public class WhaleAdaptor extends PairAdaptor {
         if (Map.class.isAssignableFrom(clazz))
             return new MapSelfInjector();
 
-        if (null == param)
-            return super.evalInjectorBy(type, null);
-
-        String paramName = param.value();
+        String pn = null == param ? getParamRealName(curIndex) : param.value();
 
         // File
         if (File.class.isAssignableFrom(clazz))
-            return new FileInjector(paramName);
+            return new FileInjector(pn);
         // FileMeta
         if (FieldMeta.class.isAssignableFrom(clazz))
-            return new FileMetaInjector(paramName);
+            return new FileMetaInjector(pn);
         // TempFile
         if (TempFile.class.isAssignableFrom(clazz))
-            return new TempFileInjector(paramName);
+            return new TempFileInjector(pn);
         // InputStream
         if (InputStream.class.isAssignableFrom(clazz))
-            return new InputStreamInjector(paramName);
+            return new InputStreamInjector(pn);
         // Reader
         if (Reader.class.isAssignableFrom(clazz))
-            return new ReaderInjector(paramName);
+            return new ReaderInjector(pn);
         // List
-        if (List.class.isAssignableFrom(clazz))
-            return new MapListInjector(paramName);
+        //if (List.class.isAssignableFrom(clazz)) {
+        //    return new MapListInjector(paramName);
+        //}
         if (TempFile[].class.isAssignableFrom(clazz)) {
-            return new TempFileArrayInjector(paramName);
+            return new TempFileArrayInjector(pn);
         }
         // Other
         return super.evalInjectorBy(type, param);

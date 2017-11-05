@@ -1,10 +1,15 @@
 package org.nutz.lang;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.io.PrintStream;
 import java.io.Reader;
 import java.io.StringReader;
@@ -19,6 +24,7 @@ import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
+import java.nio.charset.Charset;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
@@ -33,6 +39,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
 import java.util.Queue;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -43,11 +50,12 @@ import javax.xml.parsers.ParserConfigurationException;
 
 import org.nutz.castor.Castors;
 import org.nutz.castor.FailToCastObjectException;
+import org.nutz.dao.entity.annotation.Column;
 import org.nutz.json.Json;
+import org.nutz.lang.reflect.ReflectTool;
 import org.nutz.lang.stream.StringInputStream;
 import org.nutz.lang.stream.StringOutputStream;
 import org.nutz.lang.stream.StringWriter;
-import org.nutz.lang.util.ClassTools;
 import org.nutz.lang.util.Context;
 import org.nutz.lang.util.NutMap;
 import org.nutz.lang.util.NutType;
@@ -55,12 +63,37 @@ import org.nutz.lang.util.SimpleContext;
 
 /**
  * 这些帮助函数让 Java 的某些常用功能变得更简单
- * 
+ *
  * @author zozoh(zozohtnt@gmail.com)
  * @author wendal(wendal1985@gmail.com)
  * @author bonyfish(mc02cxj@gmail.com)
+ * @author wizzer(wizzer.cn@gmail.com)
  */
 public abstract class Lang {
+
+    public static int HASH_BUFF_SIZE = 16 * 1024;
+
+    private static final Pattern IPV4_PATTERN = Pattern.compile("^(25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)(\\.(25[0-5]|2[0-4]\\d|[0-1]?\\d?\\d)){3}$");
+
+    private static final Pattern IPV6_STD_PATTERN = Pattern.compile("^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$");
+
+    private static final Pattern IPV6_HEX_COMPRESSED_PATTERN = Pattern.compile("^((?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?)::((?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?)$");
+
+    public static boolean isIPv4Address(final String input) {
+        return IPV4_PATTERN.matcher(input).matches();
+    }
+
+    public static boolean isIPv6StdAddress(final String input) {
+        return IPV6_STD_PATTERN.matcher(input).matches();
+    }
+
+    public static boolean isIPv6HexCompressedAddress(final String input) {
+        return IPV6_HEX_COMPRESSED_PATTERN.matcher(input).matches();
+    }
+
+    public static boolean isIPv6Address(final String input) {
+        return isIPv6StdAddress(input) || isIPv6HexCompressedAddress(input);
+    }
 
     public static ComboException comboThrow(Throwable... es) {
         ComboException ce = new ComboException();
@@ -71,7 +104,7 @@ public abstract class Lang {
 
     /**
      * 生成一个未实现的运行时异常
-     * 
+     *
      * @return 一个未实现的运行时异常
      */
     public static RuntimeException noImplement() {
@@ -80,7 +113,7 @@ public abstract class Lang {
 
     /**
      * 生成一个不可能的运行时异常
-     * 
+     *
      * @return 一个不可能的运行时异常
      */
     public static RuntimeException impossible() {
@@ -89,7 +122,7 @@ public abstract class Lang {
 
     /**
      * 根据格式化字符串，生成运行时异常
-     * 
+     *
      * @param format
      *            格式
      * @param args
@@ -102,7 +135,7 @@ public abstract class Lang {
 
     /**
      * 根据格式化字符串，生成一个指定的异常。
-     * 
+     *
      * @param classOfT
      *            异常类型， 需要有一个字符串为参数的构造函数
      * @param format
@@ -111,15 +144,18 @@ public abstract class Lang {
      *            参数
      * @return 异常对象
      */
+    @SuppressWarnings("unchecked")
     public static <T extends Throwable> T makeThrow(Class<T> classOfT,
                                                     String format,
                                                     Object... args) {
+        if (classOfT == RuntimeException.class)
+            return (T) new RuntimeException(String.format(format, args));
         return Mirror.me(classOfT).born(String.format(format, args));
     }
 
     /**
      * 将抛出对象包裹成运行时异常，并增加自己的描述
-     * 
+     *
      * @param e
      *            抛出对象
      * @param fmt
@@ -136,7 +172,7 @@ public abstract class Lang {
      * 用运行时异常包裹抛出对象，如果抛出对象本身就是运行时异常，则直接返回。
      * <p>
      * 如果是 InvocationTargetException，那么将其剥离，只包裹其 TargetException
-     * 
+     *
      * @param e
      *            抛出对象
      * @return 运行时异常
@@ -151,7 +187,7 @@ public abstract class Lang {
 
     /**
      * 用一个指定可抛出类型来包裹一个抛出对象。这个指定的可抛出类型需要有一个构造函数 接受 Throwable 类型的对象
-     * 
+     *
      * @param e
      *            抛出对象
      * @param wrapper
@@ -195,7 +231,7 @@ public abstract class Lang {
      * <li>对数组，集合， Map 会深层比较
      * </ul>
      * 当然，如果你重写的 equals 方法会优先
-     * 
+     *
      * @param a0
      *            比较对象1
      * @param a1
@@ -278,7 +314,7 @@ public abstract class Lang {
 
     /**
      * 判断一个数组内是否包括某一个对象。 它的比较将通过 equals(Object,Object) 方法
-     * 
+     *
      * @param array
      *            数组
      * @param ele
@@ -297,7 +333,7 @@ public abstract class Lang {
 
     /**
      * 从一个文本输入流读取所有内容，并将该流关闭
-     * 
+     *
      * @param reader
      *            文本输入流
      * @return 输入流所有内容
@@ -327,7 +363,7 @@ public abstract class Lang {
 
     /**
      * 将一段字符串写入一个文本输出流，并将该流关闭
-     * 
+     *
      * @param writer
      *            文本输出流
      * @param str
@@ -348,7 +384,7 @@ public abstract class Lang {
 
     /**
      * 根据一段文本模拟出一个输入流对象
-     * 
+     *
      * @param cs
      *            文本
      * @return 输出流对象
@@ -359,7 +395,7 @@ public abstract class Lang {
 
     /**
      * 根据一段文本模拟出一个文本输入流对象
-     * 
+     *
      * @param cs
      *            文本
      * @return 文本输出流对象
@@ -370,7 +406,7 @@ public abstract class Lang {
 
     /**
      * 根据一个 StringBuilder 模拟一个文本输出流对象
-     * 
+     *
      * @param sb
      *            StringBuilder 对象
      * @return 文本输出流对象
@@ -381,7 +417,7 @@ public abstract class Lang {
 
     /**
      * 根据一个 StringBuilder 模拟一个输出流对象
-     * 
+     *
      * @param sb
      *            StringBuilder 对象
      * @return 输出流对象
@@ -392,11 +428,11 @@ public abstract class Lang {
 
     /**
      * 较方便的创建一个数组，比如：
-     * 
+     *
      * <pre>
      * String[] strs = Lang.array("A", "B", "A"); => ["A","B","A"]
      * </pre>
-     * 
+     *
      * @param eles
      *            可变参数
      * @return 数组对象
@@ -407,14 +443,14 @@ public abstract class Lang {
 
     /**
      * 较方便的创建一个没有重复的数组，比如：
-     * 
+     *
      * <pre>
      * String[] strs = Lang.arrayUniq("A","B","A");  => ["A","B"]
      * String[] strs = Lang.arrayUniq();  => null
      * </pre>
-     * 
+     *
      * 返回的顺序会遵循输入的顺序
-     * 
+     *
      * @param eles
      *            可变参数
      * @return 数组对象
@@ -448,7 +484,7 @@ public abstract class Lang {
      * <li>Map
      * <li>其他对象 : 一定不为空
      * </ul>
-     * 
+     *
      * @param obj
      *            任意对象
      * @return 是否为空
@@ -467,7 +503,7 @@ public abstract class Lang {
 
     /**
      * 判断一个数组是否是空数组
-     * 
+     *
      * @param ary
      *            数组
      * @return null 或者空数组都为 true 否则为 false
@@ -478,13 +514,13 @@ public abstract class Lang {
 
     /**
      * 较方便的创建一个列表，比如：
-     * 
+     *
      * <pre>
      * List&lt;Pet&gt; pets = Lang.list(pet1, pet2, pet3);
      * </pre>
-     * 
+     *
      * 注，这里的 List，是 ArrayList 的实例
-     * 
+     *
      * @param eles
      *            可变参数
      * @return 列表对象
@@ -498,7 +534,7 @@ public abstract class Lang {
 
     /**
      * 创建一个 Hash 集合
-     * 
+     *
      * @param eles
      *            可变参数
      * @return 集合对象
@@ -512,7 +548,7 @@ public abstract class Lang {
 
     /**
      * 将多个数组，合并成一个数组。如果这些数组为空，则返回 null
-     * 
+     *
      * @param arys
      *            数组对象
      * @return 合并后的数组对象
@@ -533,7 +569,7 @@ public abstract class Lang {
 
     /**
      * 将一个对象添加成为一个数组的第一个元素，从而生成一个新的数组
-     * 
+     *
      * @param e
      *            对象
      * @param eles
@@ -562,7 +598,7 @@ public abstract class Lang {
 
     /**
      * 将一个对象添加成为一个数组的最后一个元素，从而生成一个新的数组
-     * 
+     *
      * @param e
      *            对象
      * @param eles
@@ -593,7 +629,7 @@ public abstract class Lang {
      * 将一个数组转换成字符串
      * <p>
      * 所有的元素都被格式化字符串包裹。 这个格式话字符串只能有一个占位符， %s, %d 等，均可，请视你的数组内容而定
-     * 
+     *
      * @param fmt
      *            格式
      * @param objs
@@ -613,7 +649,7 @@ public abstract class Lang {
      * 所有的元素都被格式化字符串包裹。 这个格式话字符串只能有一个占位符， %s, %d 等，均可，请视你的数组内容而定
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param ptn
      *            格式
      * @param c
@@ -635,7 +671,7 @@ public abstract class Lang {
      * 将一个数组转换成字符串
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param c
      *            分隔符
      * @param objs
@@ -656,7 +692,7 @@ public abstract class Lang {
 
     /**
      * 清除数组中的特定值
-     * 
+     *
      * @param objs
      *            数组
      * @param val
@@ -673,7 +709,7 @@ public abstract class Lang {
         for (T obj : objs) {
             if (obj == val || (null != obj && null != val && obj.equals(val)))
                 continue;
-            if (null == eleType)
+            if (null == eleType && obj != null)
                 eleType = obj.getClass();
             list.add(obj);
         }
@@ -687,7 +723,7 @@ public abstract class Lang {
      * 将一个长整型数组转换成字符串
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param c
      *            分隔符
      * @param vals
@@ -710,7 +746,7 @@ public abstract class Lang {
      * 将一个整型数组转换成字符串
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param c
      *            分隔符
      * @param vals
@@ -733,7 +769,7 @@ public abstract class Lang {
      * 将一个数组的部分元素转换成字符串
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param offset
      *            开始元素的下标
      * @param len
@@ -760,7 +796,7 @@ public abstract class Lang {
 
     /**
      * 将一个数组所有元素拼合成一个字符串
-     * 
+     *
      * @param objs
      *            数组
      * @return 拼合后的字符串
@@ -774,7 +810,7 @@ public abstract class Lang {
 
     /**
      * 将一个数组部分元素拼合成一个字符串
-     * 
+     *
      * @param offset
      *            开始元素的下标
      * @param len
@@ -795,7 +831,7 @@ public abstract class Lang {
      * 将一个集合转换成字符串
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param c
      *            分隔符
      * @param coll
@@ -813,10 +849,10 @@ public abstract class Lang {
      * 将一个迭代器转换成字符串
      * <p>
      * 每个元素之间，都会用一个给定的字符分隔
-     * 
+     *
      * @param c
      *            分隔符
-     * @param coll
+     * @param it
      *            集合
      * @return 拼合后的字符串
      */
@@ -832,7 +868,7 @@ public abstract class Lang {
 
     /**
      * 将一个或者多个数组填入一个集合。
-     * 
+     *
      * @param <C>
      *            集合类型
      * @param <T>
@@ -852,7 +888,7 @@ public abstract class Lang {
 
     /**
      * 将一个集合变成 Map。
-     * 
+     *
      * @param mapClass
      *            Map 的类型
      * @param coll
@@ -861,12 +897,12 @@ public abstract class Lang {
      *            采用集合中元素的哪个一个字段为键。
      * @return Map 对象
      */
-    public static <T extends Map<Object, Object>> Map<?, ?> collection2map(Class<T> mapClass,
-                                                                           Collection<?> coll,
-                                                                           String keyFieldName) {
+    public static <T extends Map<Object, Object>> T collection2map(Class<T> mapClass,
+                                                                   Collection<?> coll,
+                                                                   String keyFieldName) {
         if (null == coll)
             return null;
-        Map<Object, Object> map = createMap(mapClass);
+        T map = createMap(mapClass);
         if (coll.size() > 0) {
             Iterator<?> it = coll.iterator();
             Object obj = it.next();
@@ -879,12 +915,12 @@ public abstract class Lang {
                 map.put(key, obj);
             }
         }
-        return map;
+        return (T) map;
     }
 
     /**
      * 将集合变成 ArrayList
-     * 
+     *
      * @param col
      *            集合对象
      * @return 列表对象
@@ -901,7 +937,7 @@ public abstract class Lang {
 
     /**
      * 将集合编程变成指定类型的列表
-     * 
+     *
      * @param col
      *            集合对象
      * @param eleType
@@ -919,7 +955,7 @@ public abstract class Lang {
 
     /**
      * 将集合变成数组，数组的类型为集合的第一个元素的类型。如果集合为空，则返回 null
-     * 
+     *
      * @param coll
      *            集合对象
      * @return 数组
@@ -937,7 +973,7 @@ public abstract class Lang {
 
     /**
      * 将集合变成指定类型的数组
-     * 
+     *
      * @param col
      *            集合对象
      * @param eleType
@@ -962,7 +998,7 @@ public abstract class Lang {
 
     /**
      * 将一个数组变成 Map
-     * 
+     *
      * @param mapClass
      *            Map 的类型
      * @param array
@@ -971,12 +1007,12 @@ public abstract class Lang {
      *            采用集合中元素的哪个一个字段为键。
      * @return Map 对象
      */
-    public static <T extends Map<Object, Object>> Map<?, ?> array2map(Class<T> mapClass,
-                                                                      Object array,
-                                                                      String keyFieldName) {
+    public static <T extends Map<Object, Object>> T array2map(Class<T> mapClass,
+                                                              Object array,
+                                                              String keyFieldName) {
         if (null == array)
             return null;
-        Map<Object, Object> map = createMap(mapClass);
+        T map = createMap(mapClass);
         int len = Array.getLength(array);
         if (len > 0) {
             Object obj = Array.get(array, 0);
@@ -990,13 +1026,14 @@ public abstract class Lang {
         return map;
     }
 
-    private static <T extends Map<Object, Object>> Map<Object, Object> createMap(Class<T> mapClass) {
-        Map<Object, Object> map;
+    @SuppressWarnings("unchecked")
+    private static <T extends Map<Object, Object>> T createMap(Class<T> mapClass) {
+        T map;
         try {
             map = mapClass.newInstance();
         }
         catch (Exception e) {
-            map = new HashMap<Object, Object>();
+            map = (T) new HashMap<Object, Object>();
         }
         if (!mapClass.isAssignableFrom(map.getClass())) {
             throw Lang.makeThrow("Fail to create map [%s]", mapClass.getName());
@@ -1006,11 +1043,11 @@ public abstract class Lang {
 
     /**
      * 将数组转换成一个列表。
-     * 
+     *
      * @param array
      *            原始数组
      * @return 新列表
-     * 
+     *
      * @see org.nutz.castor.Castors
      */
     public static <T> List<T> array2list(T[] array) {
@@ -1024,13 +1061,13 @@ public abstract class Lang {
 
     /**
      * 将数组转换成一个列表。将会采用 Castor 来深层转换数组元素
-     * 
+     *
      * @param array
      *            原始数组
      * @param eleType
      *            新列表的元素类型
      * @return 新列表
-     * 
+     *
      * @see org.nutz.castor.Castors
      */
     public static <T, E> List<E> array2list(Object array, Class<E> eleType) {
@@ -1047,14 +1084,14 @@ public abstract class Lang {
 
     /**
      * 将数组转换成另外一种类型的数组。将会采用 Castor 来深层转换数组元素
-     * 
+     *
      * @param array
      *            原始数组
      * @param eleType
      *            新数组的元素类型
      * @return 新数组
      * @throws FailToCastObjectException
-     * 
+     *
      * @see org.nutz.castor.Castors
      */
     public static Object array2array(Object array, Class<?> eleType)
@@ -1071,14 +1108,14 @@ public abstract class Lang {
 
     /**
      * 将数组转换成Object[] 数组。将会采用 Castor 来深层转换数组元素
-     * 
+     *
      * @param args
      *            原始数组
      * @param pts
      *            新数组的元素类型
      * @return 新数组
      * @throws FailToCastObjectException
-     * 
+     *
      * @see org.nutz.castor.Castors
      */
     public static <T> Object[] array2ObjectArray(T[] args, Class<?>[] pts)
@@ -1094,7 +1131,7 @@ public abstract class Lang {
 
     /**
      * 根据一个 Map，和给定的对象类型，创建一个新的 JAVA 对象
-     * 
+     *
      * @param src
      *            Map 对象
      * @param toType
@@ -1135,12 +1172,20 @@ public abstract class Lang {
         Mirror<T> mirror = Mirror.me(toType);
         T obj = mirror.born();
         for (Field field : mirror.getFields()) {
-            if (src.containsKey(field.getName())) {
-                Object v = src.get(field.getName());
-                if (null == v)
-                    continue;
+            Object v = null;
+            if (!Lang.isAndroid && field.isAnnotationPresent(Column.class)) {
+                String cv = field.getAnnotation(Column.class).value();
+                v = src.get(cv);
+            }
 
-                Class<?> ft = field.getType();
+            if (null == v && src.containsKey(field.getName())) {
+                v = src.get(field.getName());
+            }
+
+            if (null != v) {
+                //Class<?> ft = field.getType();
+                //获取泛型基类中的字段真实类型, https://github.com/nutzam/nutz/issues/1288
+                Class<?> ft = ReflectTool.getGenericFieldType(toType, field);
                 Object vv = null;
                 // 集合
                 if (v instanceof Collection) {
@@ -1153,7 +1198,9 @@ public abstract class Lang {
                     else {
                         // 创建
                         Collection newCol;
-                        Class eleType = Mirror.getGenericTypes(field, 0);
+                        //Class eleType = Mirror.getGenericTypes(field, 0);
+                        Class<?> eleType = ReflectTool.getParameterRealGenericClass(toType,
+                                field.getGenericType(),0);
                         if (ft == List.class) {
                             newCol = new ArrayList(c.size());
                         } else if (ft == Set.class) {
@@ -1191,10 +1238,16 @@ public abstract class Lang {
                         }
                     }
                     // 赋值
-                    final Class<?> valType = Mirror.getGenericTypes(field, 1);
+                    //final Class<?> valType = Mirror.getGenericTypes(field, 1);
+                    //map的key和value字段类型
+                    final Class<?> keyType = ReflectTool.getParameterRealGenericClass(toType,
+                            field.getGenericType(),0);
+                    final Class<?> valType =ReflectTool.getParameterRealGenericClass(toType,
+                            field.getGenericType(),1);
                     each(v, new Each<Entry>() {
                         public void invoke(int i, Entry en, int length) {
-                            map.put(en.getKey(), Castors.me().castTo(en.getValue(), valType));
+                            map.put(Castors.me().castTo(en.getKey(), keyType),
+                                    Castors.me().castTo(en.getValue(), valType));
                         }
                     });
                     vv = map;
@@ -1211,7 +1264,7 @@ public abstract class Lang {
 
     /**
      * 根据一段字符串，生成一个 Map 对象。
-     * 
+     *
      * @param str
      *            参照 JSON 标准的字符串，但是可以没有前后的大括号
      * @return Map 对象
@@ -1220,24 +1273,26 @@ public abstract class Lang {
         if (null == str)
             return null;
         str = Strings.trim(str);
-        if ((str.length() > 0 && str.charAt(0) == '{') && str.endsWith("}"))
+        if (!Strings.isEmpty(str)
+            && (Strings.isQuoteBy(str, '{', '}') || Strings.isQuoteBy(str, '(', ')'))) {
             return Json.fromJson(NutMap.class, str);
+        }
         return Json.fromJson(NutMap.class, "{" + str + "}");
     }
 
     /**
      * 将一个 Map 所有的键都按照回调进行修改
-     * 
+     *
      * 本函数遇到数组或者集合，会自动处理每个元素
-     * 
+     *
      * @param obj
      *            要转换的 Map 或者 集合或者数组
-     * 
+     *
      * @param mkc
      *            键值修改的回调
      * @param recur
      *            遇到 Map 是否递归
-     * 
+     *
      * @see MapKeyConvertor
      */
     @SuppressWarnings("unchecked")
@@ -1275,7 +1330,7 @@ public abstract class Lang {
 
     /**
      * 创建一个一个键的 Map 对象
-     * 
+     *
      * @param key
      *            键
      * @param v
@@ -1288,7 +1343,7 @@ public abstract class Lang {
 
     /**
      * 根据一个格式化字符串，生成 Map 对象
-     * 
+     *
      * @param fmt
      *            格式化字符串
      * @param args
@@ -1301,7 +1356,7 @@ public abstract class Lang {
 
     /**
      * 创建一个新的上下文对象
-     * 
+     *
      * @return 一个新创建的上下文对象
      */
     public static Context context() {
@@ -1310,10 +1365,10 @@ public abstract class Lang {
 
     /**
      * 根据一个 Map 包裹成一个上下文对象
-     * 
+     *
      * @param map
      *            Map 对象
-     * 
+     *
      * @return 一个新创建的上下文对象
      */
     public static Context context(Map<String, Object> map) {
@@ -1322,12 +1377,12 @@ public abstract class Lang {
 
     /**
      * 根据一段 JSON 字符串，生产一个新的上下文对象
-     * 
+     *
      * @param fmt
      *            JSON 字符串模板
      * @param args
      *            模板参数
-     * 
+     *
      * @return 一个新创建的上下文对象
      */
     public static Context contextf(String fmt, Object... args) {
@@ -1336,7 +1391,7 @@ public abstract class Lang {
 
     /**
      * 根据一段 JSON 字符串，生产一个新的上下文对象
-     * 
+     *
      * @return 一个新创建的上下文对象
      */
     public static Context context(String str) {
@@ -1345,7 +1400,7 @@ public abstract class Lang {
 
     /**
      * 根据一段字符串，生成一个List 对象。
-     * 
+     *
      * @param str
      *            参照 JSON 标准的字符串，但是可以没有前后的中括号
      * @return List 对象
@@ -1369,10 +1424,12 @@ public abstract class Lang {
      * <li>一般 Java 对象。 返回 1
      * </ul>
      * 如果你想让你的 Java 对象返回不是 1 ， 请在对象中声明 length() 函数
-     * 
+     *
      * @param obj
      * @return 对象长度
+     * @deprecated 这玩意很脑残，为啥最后要动态调个 "length"，导致字符串类很麻烦，以后用 Lang.eleSize 函数代替吧
      */
+    @Deprecated
     public static int length(Object obj) {
         if (null == obj)
             return 0;
@@ -1391,8 +1448,42 @@ public abstract class Lang {
     }
 
     /**
+     * 获得一个容器（Map/集合/数组）对象包含的元素数量
+     * <ul>
+     * <li>null : 0
+     * <li>数组
+     * <li>集合
+     * <li>Map
+     * <li>一般 Java 对象。 返回 1
+     * </ul>
+     *
+     * @param obj
+     * @return 对象长度
+     * @since Nutz 1.r.62
+     */
+    public static int eleSize(Object obj) {
+        // 空指针，就是 0
+        if (null == obj)
+            return 0;
+        // 数组
+        if (obj.getClass().isArray()) {
+            return Array.getLength(obj);
+        }
+        // 容器
+        if (obj instanceof Collection<?>) {
+            return ((Collection<?>) obj).size();
+        }
+        // Map
+        if (obj instanceof Map<?, ?>) {
+            return ((Map<?, ?>) obj).size();
+        }
+        // 其他的就是 1 咯
+        return 1;
+    }
+
+    /**
      * 如果是数组或集合取得第一个对象。 否则返回自身
-     * 
+     *
      * @param obj
      *            任意对象
      * @return 第一个代表对象
@@ -1414,7 +1505,7 @@ public abstract class Lang {
 
     /**
      * 获取集合中的第一个元素，如果集合为空，返回 null
-     * 
+     *
      * @param coll
      *            集合
      * @return 第一个元素
@@ -1427,7 +1518,7 @@ public abstract class Lang {
 
     /**
      * 获得表中的第一个名值对
-     * 
+     *
      * @param map
      *            表
      * @return 第一个名值对
@@ -1460,7 +1551,7 @@ public abstract class Lang {
      * <li>Map
      * <li>单一元素
      * </ul>
-     * 
+     *
      * @param obj
      *            对象
      * @param callback
@@ -1478,7 +1569,7 @@ public abstract class Lang {
      * <li>Map
      * <li>单一元素
      * </ul>
-     * 
+     *
      * @param obj
      *            对象
      * @param loopMap
@@ -1498,7 +1589,6 @@ public abstract class Lang {
                     return;
 
             // 进行循环
-            Class<T> eType = Mirror.getTypeParam(callback.getClass(), 0);
             if (obj.getClass().isArray()) {
                 int len = Array.getLength(obj);
                 for (int i = 0; i < len; i++)
@@ -1524,6 +1614,7 @@ public abstract class Lang {
                 Map map = (Map) obj;
                 int len = map.size();
                 int i = 0;
+                Class<T> eType = Mirror.getTypeParam(callback.getClass(), 0);
                 if (null != eType && eType != Object.class && eType.isAssignableFrom(Entry.class)) {
                     for (Object v : map.entrySet())
                         try {
@@ -1576,7 +1667,7 @@ public abstract class Lang {
      * 安全的从一个数组获取一个元素，容忍 null 数组，以及支持负数的 index
      * <p>
      * 如果该下标越界，则返回 null
-     * 
+     *
      * @param <T>
      * @param array
      *            数组，如果为 null 则直接返回 null
@@ -1595,7 +1686,7 @@ public abstract class Lang {
 
     /**
      * 将一个抛出对象的异常堆栈，显示成一个字符串
-     * 
+     *
      * @param e
      *            抛出对象
      * @return 异常堆栈文本
@@ -1617,7 +1708,7 @@ public abstract class Lang {
      * <li>on | off
      * <li>true | false
      * </ul>
-     * 
+     *
      * @param s
      *            字符串
      * @return 布尔值
@@ -1635,7 +1726,7 @@ public abstract class Lang {
 
     /**
      * 帮你快速获得一个 DocumentBuilder，方便 XML 解析。
-     * 
+     *
      * @return 一个 DocumentBuilder 对象
      * @throws ParserConfigurationException
      */
@@ -1645,7 +1736,7 @@ public abstract class Lang {
 
     /**
      * 对Thread.sleep(long)的简单封装,不抛出任何异常
-     * 
+     *
      * @param millisecond
      *            休眠时间
      */
@@ -1666,7 +1757,7 @@ public abstract class Lang {
      * <li>78L - 长整数 Long</li>
      * <li>69 - 普通整数 Integer</li>
      * </ul>
-     * 
+     *
      * @param s
      *            参数
      * @return 数字对象
@@ -1852,7 +1943,7 @@ public abstract class Lang {
 
     /**
      * 将对象转换成 Map
-     * 
+     *
      * @param obj
      *            POJO 对象
      * @return Map 对象
@@ -1864,7 +1955,7 @@ public abstract class Lang {
 
     /**
      * 将对象转为 Nutz 的标准 Map 封装
-     * 
+     *
      * @param obj
      *            POJO du对象
      * @return NutMap 对象
@@ -1875,7 +1966,7 @@ public abstract class Lang {
 
     /**
      * 将对象转换成 Map
-     * 
+     *
      * @param <T>
      * @param obj
      *            POJO 对象
@@ -1896,7 +1987,7 @@ public abstract class Lang {
 
     /**
      * 返回一个集合对象的枚举对象。实际上就是对 Iterator 接口的一个封装
-     * 
+     *
      * @param col
      *            集合对象
      * @return 枚举对象
@@ -1916,7 +2007,7 @@ public abstract class Lang {
 
     /**
      * 将枚举对象，变成集合
-     * 
+     *
      * @param enums
      *            枚举对象
      * @param cols
@@ -1931,7 +2022,7 @@ public abstract class Lang {
 
     /**
      * 将字符数组强制转换成字节数组。如果字符为双字节编码，则会丢失信息
-     * 
+     *
      * @param cs
      *            字符数组
      * @return 字节数组
@@ -1945,7 +2036,7 @@ public abstract class Lang {
 
     /**
      * 将整数数组强制转换成字节数组。整数的高位将会被丢失
-     * 
+     *
      * @param is
      *            整数数组
      * @return 字节数组
@@ -1959,7 +2050,7 @@ public abstract class Lang {
 
     /**
      * 判断当前系统是否为Windows
-     * 
+     *
      * @return true 如果当前系统为Windows系统
      */
     public static boolean isWin() {
@@ -1973,50 +2064,29 @@ public abstract class Lang {
     }
 
     /**
-     * 使用当前线程的ClassLoader加载给定的类
-     * 
-     * @param className
-     *            类的全称
-     * @return 给定的类
-     * @throws ClassNotFoundException
-     *             如果无法用当前线程的ClassLoader加载
+     * 原方法使用线程ClassLoader,各种问题,改回原版.
      */
     public static Class<?> loadClass(String className) throws ClassNotFoundException {
         try {
             return Thread.currentThread().getContextClassLoader().loadClass(className);
         }
-        catch (ClassNotFoundException e) {
+        catch (Throwable e) {
             return Class.forName(className);
         }
     }
 
     /**
-     * 当前运行的 Java 虚拟机是 JDK6 的话，则返回 true
-     * 
+     * 当前运行的 Java 虚拟机是 JDK6 及更高版本的话，则返回 true
+     *
      * @return true 如果当前运行的 Java 虚拟机是 JDK6
      */
     public static boolean isJDK6() {
-        InputStream is = null;
-        try {
-            String classFileName = Lang.class.getName().replace('.', '/') + ".class";
-            is = ClassTools.getClassLoader().getResourceAsStream(classFileName);
-            if (is == null)
-                is = ClassTools.getClassLoader().getResourceAsStream("/" + classFileName);
-            if (is != null && is.available() > 8) {
-                is.skip(7);
-                return is.read() > 49;
-            }
-        }
-        catch (Throwable e) {}
-        finally {
-            Streams.safeClose(is);
-        }
-        return false;
+        return JdkTool.getMajorVersion() >= 6;
     }
 
     /**
      * 获取基本类型的默认值
-     * 
+     *
      * @param pClass
      *            基本类型
      * @return 0/false,如果传入的pClass不是基本类型的类,则返回null
@@ -2043,7 +2113,7 @@ public abstract class Lang {
 
     /**
      * 当一个类使用<T,K>来定义泛型时,本方法返回类的一个字段的具体类型。
-     * 
+     *
      * @param me
      * @param field
      */
@@ -2053,7 +2123,7 @@ public abstract class Lang {
 
     /**
      * 当一个类使用<T, K> 来定义泛型时, 本方法返回类的一个方法所有参数的具体类型
-     * 
+     *
      * @param me
      * @param method
      */
@@ -2068,7 +2138,7 @@ public abstract class Lang {
 
     /**
      * 当一个类使用<T,K>来定义泛型时,本方法返回类的一个字段的具体类型。
-     * 
+     *
      * @param me
      * @param field
      */
@@ -2079,7 +2149,7 @@ public abstract class Lang {
 
     /**
      * 当一个类使用<T,K>来定义泛型时,本方法返回类的一个字段的具体类型。
-     * 
+     *
      * @param me
      * @param type
      */
@@ -2119,7 +2189,7 @@ public abstract class Lang {
 
     /**
      * 获取一个 Type 类型实际对应的Class
-     * 
+     *
      * @param type
      *            类型
      * @return 与Type类型实际对应的Class
@@ -2154,7 +2224,7 @@ public abstract class Lang {
 
     /**
      * 返回一个 Type 的泛型数组, 如果没有, 则直接返回null
-     * 
+     *
      * @param type
      *            类型
      * @return 一个 Type 的泛型数组, 如果没有, 则直接返回null
@@ -2169,7 +2239,7 @@ public abstract class Lang {
 
     /**
      * 强制从字符串转换成一个 Class，将 ClassNotFoundException 包裹成 RuntimeException
-     * 
+     *
      * @param <T>
      * @param name
      *            类名
@@ -2191,7 +2261,7 @@ public abstract class Lang {
 
     /**
      * 获取指定文件的 MD5 值
-     * 
+     *
      * @param f
      *            文件
      * @return 指定文件的 MD5 值
@@ -2203,7 +2273,7 @@ public abstract class Lang {
 
     /**
      * 获取指定输入流的 MD5 值
-     * 
+     *
      * @param ins
      *            输入流
      * @return 指定输入流的 MD5 值
@@ -2215,7 +2285,7 @@ public abstract class Lang {
 
     /**
      * 获取指定字符串的 MD5 值
-     * 
+     *
      * @param cs
      *            字符串
      * @return 指定字符串的 MD5 值
@@ -2227,7 +2297,7 @@ public abstract class Lang {
 
     /**
      * 获取指定文件的 SHA1 值
-     * 
+     *
      * @param f
      *            文件
      * @return 指定文件的 SHA1 值
@@ -2239,7 +2309,7 @@ public abstract class Lang {
 
     /**
      * 获取指定输入流的 SHA1 值
-     * 
+     *
      * @param ins
      *            输入流
      * @return 指定输入流的 SHA1 值
@@ -2251,7 +2321,7 @@ public abstract class Lang {
 
     /**
      * 获取指定字符串的 SHA1 值
-     * 
+     *
      * @param cs
      *            字符串
      * @return 指定字符串的 SHA1 值
@@ -2262,10 +2332,46 @@ public abstract class Lang {
     }
 
     /**
+     * 获取指定文件的 SHA256 值
+     *
+     * @param f
+     *            文件
+     * @return 指定文件的 SHA256 值
+     * @see #digest(String, File)
+     */
+    public static String sha256(File f) {
+        return digest("SHA-256", f);
+    }
+
+    /**
+     * 获取指定输入流的 SHA256 值
+     *
+     * @param ins
+     *            输入流
+     * @return 指定输入流的 SHA256 值
+     * @see #digest(String, InputStream)
+     */
+    public static String sha256(InputStream ins) {
+        return digest("SHA-256", ins);
+    }
+
+    /**
+     * 获取指定字符串的 SHA256 值
+     *
+     * @param cs
+     *            字符串
+     * @return 指定字符串的 SHA256 值
+     * @see #digest(String, CharSequence)
+     */
+    public static String sha256(CharSequence cs) {
+        return digest("SHA-256", cs);
+    }
+
+    /**
      * 从数据文件计算出数字签名
-     * 
+     *
      * @param algorithm
-     *            算法，比如 "SHA1" 或者 "MD5" 等
+     *            算法，比如 "SHA1" "SHA-256" 或者 "MD5" 等
      * @param f
      *            文件
      * @return 数字签名
@@ -2276,7 +2382,7 @@ public abstract class Lang {
 
     /**
      * 从流计算出数字签名，计算完毕流会被关闭
-     * 
+     *
      * @param algorithm
      *            算法，比如 "SHA1" 或者 "MD5" 等
      * @param ins
@@ -2287,7 +2393,7 @@ public abstract class Lang {
         try {
             MessageDigest md = MessageDigest.getInstance(algorithm);
 
-            byte[] bs = new byte[1024];
+            byte[] bs = new byte[HASH_BUFF_SIZE];
             int len = 0;
             while ((len = ins.read(bs)) != -1) {
                 md.update(bs, 0, len);
@@ -2313,7 +2419,7 @@ public abstract class Lang {
 
     /**
      * 从字符串计算出数字签名
-     * 
+     *
      * @param algorithm
      *            算法，比如 "SHA1" 或者 "MD5" 等
      * @param cs
@@ -2326,7 +2432,7 @@ public abstract class Lang {
 
     /**
      * 从字节数组计算出数字签名
-     * 
+     *
      * @param algorithm
      *            算法，比如 "SHA1" 或者 "MD5" 等
      * @param bytes
@@ -2374,7 +2480,7 @@ public abstract class Lang {
 
     /**
      * 将指定的数组的内容倒序排序。注意，这会破坏原数组的内容
-     * 
+     *
      * @param arrays
      *            指定的数组
      */
@@ -2393,7 +2499,12 @@ public abstract class Lang {
         }
     }
 
+    @Deprecated
     public static String simpleMetodDesc(Method method) {
+        return simpleMethodDesc(method);
+    }
+
+    public static String simpleMethodDesc(Method method) {
         return String.format("%s.%s(...)",
                              method.getDeclaringClass().getSimpleName(),
                              method.getName());
@@ -2410,7 +2521,7 @@ public abstract class Lang {
 
     /**
      * 一个便利的方法，将当前线程睡眠一段时间
-     * 
+     *
      * @param ms
      *            要睡眠的时间 ms
      */
@@ -2425,7 +2536,7 @@ public abstract class Lang {
 
     /**
      * 一个便利的等待方法同步一个对象
-     * 
+     *
      * @param lock
      *            锁对象
      * @param ms
@@ -2445,7 +2556,7 @@ public abstract class Lang {
 
     /**
      * 通知对象的同步锁
-     * 
+     *
      * @param lock
      *            锁对象
      */
@@ -2462,7 +2573,7 @@ public abstract class Lang {
 
     /**
      * map对象浅过滤,返回值是一个新的map
-     * 
+     *
      * @param source
      *            原始的map对象
      * @param prefix
@@ -2471,7 +2582,7 @@ public abstract class Lang {
      *            正则表达式 仅包含哪些key(如果有前缀要求,则已经移除了前缀)
      * @param exclude
      *            正则表达式 排除哪些key(如果有前缀要求,则已经移除了前缀)
-     * @param map
+     * @param keyMap
      *            映射map, 原始key--目标key (如果有前缀要求,则已经移除了前缀)
      * @return 经过过滤的map,与原始map不是同一个对象
      */
@@ -2509,11 +2620,14 @@ public abstract class Lang {
 
     /**
      * 获得访问者的IP地址, 反向代理过的也可以获得
-     * 
+     *
      * @param request
-     * @return
+     *            请求的req对象
+     * @return 来源ip
      */
     public static String getIP(HttpServletRequest request) {
+        if (request == null)
+            return "";
         String ip = request.getHeader("X-Forwarded-For");
         if (ip == null || ip.length() == 0 || "unknown".equalsIgnoreCase(ip)) {
             if (ip == null || ip.length() == 0 || "unknown".equalsIgnoreCase(ip)) {
@@ -2541,7 +2655,12 @@ public abstract class Lang {
                 }
             }
         }
-        return ip;
+        if (Strings.isBlank(ip))
+            return "";
+        if (isIPv4Address(ip) || isIPv6Address(ip)) {
+            return ip;
+        }
+        return "";
     }
 
     /**
@@ -2554,39 +2673,143 @@ public abstract class Lang {
         }
         return cp;
     }
-    
+
     public static <T> T copyProperties(Object origin, T target) {
-    	return copyProperties(origin, target, null, null, false, true);
+        return copyProperties(origin, target, null, null, false, true);
+    }
+
+    public static <T> T copyProperties(Object origin,
+                                       T target,
+                                       String active,
+                                       String lock,
+                                       boolean ignoreNull,
+                                       boolean ignoreStatic) {
+        if (origin == null)
+            throw new IllegalArgumentException("origin is null");
+        if (target == null)
+            throw new IllegalArgumentException("target is null");
+        Pattern at = active == null ? null : Pattern.compile(active);
+        Pattern lo = lock == null ? null : Pattern.compile(lock);
+        Mirror<Object> originMirror = Mirror.me(origin);
+        Mirror<T> targetMirror = Mirror.me(target);
+        Field[] fields = targetMirror.getFields();
+        for (Field field : originMirror.getFields()) {
+            String name = field.getName();
+            if (at != null && !at.matcher(name).find())
+                continue;
+            if (lo != null && lo.matcher(name).find())
+                continue;
+            if (ignoreStatic && Modifier.isStatic(field.getModifiers()))
+                continue;
+            Object val = originMirror.getValue(origin, field);
+            if (ignoreNull && val == null)
+                continue;
+            for (Field _field : fields) {
+                if (_field.getName().equals(field.getName())) {
+                    targetMirror.setValue(target, _field, val);
+                }
+            }
+            // TODO 支持getter/setter比对
+        }
+        return target;
+    }
+
+    public static StringBuilder execOutput(String cmd) throws IOException {
+        return execOutput(Strings.splitIgnoreBlank(cmd, " "), Encoding.CHARSET_UTF8);
+    }
+
+    public static StringBuilder execOutput(String cmd, Charset charset) throws IOException {
+        return execOutput(Strings.splitIgnoreBlank(cmd, " "), charset);
+    }
+
+    public static StringBuilder execOutput(String cmd[]) throws IOException {
+        return execOutput(cmd, Encoding.CHARSET_UTF8);
+    }
+
+    public static StringBuilder execOutput(String[] cmd, Charset charset) throws IOException {
+        Process p = Runtime.getRuntime().exec(cmd);
+        p.getOutputStream().close();
+        InputStreamReader r = new InputStreamReader(p.getInputStream(), charset);
+        StringBuilder sb = new StringBuilder();
+        Streams.readAndClose(r, sb);
+        return sb;
+    }
+
+    public static void exec(String cmd, StringBuilder out, StringBuilder err) throws IOException {
+        exec(Strings.splitIgnoreBlank(cmd, " "), Encoding.CHARSET_UTF8, out, err);
+    }
+
+    public static void exec(String[] cmd, StringBuilder out, StringBuilder err) throws IOException {
+        exec(cmd, Encoding.CHARSET_UTF8, out, err);
+    }
+
+    public static void exec(String[] cmd, Charset charset, StringBuilder out, StringBuilder err)
+            throws IOException {
+        Process p = Runtime.getRuntime().exec(cmd);
+        p.getOutputStream().close();
+        InputStreamReader sOut = new InputStreamReader(p.getInputStream(), charset);
+        Streams.readAndClose(sOut, out);
+
+        InputStreamReader sErr = new InputStreamReader(p.getErrorStream(), charset);
+        Streams.readAndClose(sErr, err);
+    }
+
+    public static Class<?> loadClassQuite(String className) {
+        try {
+            return loadClass(className);
+        }
+        catch (ClassNotFoundException e) {
+            return null;
+        }
+    }
+
+    public static byte[] toBytes(Object obj) {
+        try {
+            ByteArrayOutputStream bao = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bao);
+            oos.writeObject(obj);
+            return bao.toByteArray();
+        }
+        catch (IOException e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> T fromBytes(byte[] buf, Class<T> klass) {
+        try {
+            return (T) new ObjectInputStream(new ByteArrayInputStream(buf)).readObject();
+        }
+        catch (ClassNotFoundException e) {
+            return null;
+        }
+        catch (IOException e) {
+            return null;
+        }
     }
     
-    public static <T> T copyProperties(Object origin, T target, String active, String lock, boolean ignoreNull, boolean ignoreStatic) {
-    	if (origin == null)
-    		throw new IllegalArgumentException("origin is null");
-    	if (target == null)
-    		throw new IllegalArgumentException("target is null");
-    	Pattern at = active == null ? null : Pattern.compile(active);
-    	Pattern lo = lock == null ? null : Pattern.compile(lock);
-    	Mirror<Object> originMirror = Mirror.me(origin);
-    	Mirror<T> targetMirror = Mirror.me(target);
-    	Field[] fields = targetMirror.getFields();
-    	for (Field field : originMirror.getFields()) {
-    		String name = field.getName();
-    		if (at != null && !at.matcher(name).find())
-    			continue;
-    		if (lock != null && lo.matcher(name).find())
-    			continue;
-    		if (ignoreStatic && Modifier.isStatic(field.getModifiers()))
-    			continue;
-			Object val = originMirror.getValue(origin, field);
-			if (ignoreNull && val == null)
-				continue;
-			for (Field _field : fields) {
-				if (_field.getName().equals(field.getName())) {
-					targetMirror.setValue(target, _field, val);
-				}
-			}
-			// TODO 支持getter/setter比对
-		}
-    	return target;
+    public static class JdkTool {
+        public static String getVersionLong() {
+            Properties sys = System.getProperties();
+            return sys.getProperty("java.version");
+        }
+        public static int getMajorVersion() {
+            String ver = getVersionLong();
+            if (Strings.isBlank(ver))
+                return 6;
+            String[] tmp = ver.split("\\.");
+            if (tmp.length < 2)
+                return 6;
+            int t = Integer.parseInt(tmp[0]);
+            if (t > 1)
+                return t;
+            return Integer.parseInt(tmp[1]);
+        }
+        public static boolean isEarlyAccess() {
+            String ver = getVersionLong();
+            if (Strings.isBlank(ver))
+                return false;
+            return ver.contains("-ea");
+        }
     }
 }

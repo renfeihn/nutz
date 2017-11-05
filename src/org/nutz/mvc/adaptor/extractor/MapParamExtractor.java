@@ -1,11 +1,13 @@
 package org.nutz.mvc.adaptor.extractor;
 
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
 import javax.servlet.http.HttpServletRequest;
 
+import org.nutz.lang.Lang;
 import org.nutz.mvc.adaptor.ParamExtractor;
 
 /**
@@ -37,12 +39,12 @@ public class MapParamExtractor implements ParamExtractor {
         return req.getParameterValues(name);
     }
 
-    @SuppressWarnings("unchecked")
     public Set<String> keys() {
         Set<String> ss = new HashSet<String>();
         ss.addAll(map.keySet());
         if (req != null)
-            ss.addAll(req.getParameterMap().keySet());
+            ss.addAll((Collection<? extends String>) Lang.enum2collection(req.getParameterNames(),
+                                                                          new HashSet<String>()));
         return ss;
     }
 

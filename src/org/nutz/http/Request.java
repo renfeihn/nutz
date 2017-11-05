@@ -19,7 +19,7 @@ import org.nutz.lang.LoopException;
 public class Request {
 
     public static enum METHOD {
-        GET, POST, OPTIONS, PUT, DELETE, TRACE, CONNECT
+        GET, POST, OPTIONS, PUT, DELETE, TRACE, CONNECT, HEAD
     }
 
     public static Request get(String url) {
@@ -67,12 +67,19 @@ public class Request {
 
     private String url;
     private METHOD method;
+    private String methodString;
     private Header header;
     private Map<String, Object> params;
     private byte[] data;
     private URL cacheUrl;
     private InputStream inputStream;
     private String enc = Encoding.UTF8;
+    private boolean offEncode;
+
+    public Request offEncode(boolean off) {
+        this.offEncode = off;
+        return this;
+    }
 
     public URL getUrl() {
         if (cacheUrl != null) {
@@ -106,10 +113,16 @@ public class Request {
                 if (val == null)
                     val = "";
                 Lang.each(val, new Each<Object>() {
-                    public void invoke(int index, Object ele, int length)throws ExitLoop, ContinueLoop, LoopException {
-                        sb.append(Http.encode(key, enc))
-                        .append('=')
-                        .append(Http.encode(ele, enc)).append('&');
+                    public void invoke(int index, Object ele, int length)
+                            throws ExitLoop, ContinueLoop, LoopException {
+                        if (offEncode) {
+                            sb.append(key).append('=').append(ele).append('&');
+                        } else {
+                            sb.append(Http.encode(key, enc))
+                              .append('=')
+                              .append(Http.encode(ele, enc))
+                              .append('&');
+                        }
                     }
                 });
             }
@@ -123,6 +136,8 @@ public class Request {
         if (inputStream != null) {
             return inputStream;
         } else {
+            if (header.get("Content-Type") == null)
+                header.asFormContentType(enc);
             if (null == data) {
                 try {
                     return new ByteArrayInputStream(getURLEncodedParams().getBytes(enc));
@@ -135,34 +150,37 @@ public class Request {
         }
     }
 
-    public void setInputStream(InputStream inputStream) {
+    public Request setInputStream(InputStream inputStream) {
         this.inputStream = inputStream;
+        return this;
     }
 
     public byte[] getData() {
         return data;
     }
 
-    public void setData(byte[] data) {
+    public Request setData(byte[] data) {
         this.data = data;
+        return this;
     }
 
-    public void setData(String data) {
+    public Request setData(String data) {
         try {
             this.data = data.getBytes(Encoding.UTF8);
         }
         catch (UnsupportedEncodingException e) {
             // 不可能
         }
+        return this;
     }
 
-    private Request setParams(Map<String, Object> params) {
+    public Request setParams(Map<String, Object> params) {
         this.params = params;
         return this;
     }
 
     public Request setUrl(String url) {
-        if (url != null && url.indexOf("://") < 0)
+        if (url != null && !url.contains("://"))
             // 默认采用http协议
             this.url = "http://" + url;
         else
@@ -200,6 +218,8 @@ public class Request {
     }
 
     public Request setHeader(Header header) {
+        if (header == null)
+            header = new Header();
         this.header = header;
         return this;
     }
@@ -227,5 +247,24 @@ public class Request {
 
     public String getEnc() {
         return enc;
+    }
+
+    public Request header(String key, String value) {
+        getHeader().set(key, value);
+        return this;
+    }
+
+    public Request setMethodString(String methodString) {
+        try {
+            method = METHOD.valueOf(methodString.toUpperCase());
+        }
+        catch (Throwable e) {
+            this.methodString = methodString;
+        }
+        return this;
+    }
+
+    public String getMethodString() {
+        return methodString;
     }
 }

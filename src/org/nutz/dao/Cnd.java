@@ -1,7 +1,11 @@
 package org.nutz.dao;
 
+import java.lang.reflect.Array;
+import java.util.Collection;
+
 import org.nutz.dao.entity.Entity;
 import org.nutz.dao.entity.MappingField;
+import org.nutz.dao.impl.SimpleNesting;
 import org.nutz.dao.jdbc.ValueAdaptor;
 import org.nutz.dao.pager.Pager;
 import org.nutz.dao.sql.Criteria;
@@ -11,6 +15,7 @@ import org.nutz.dao.sql.Pojo;
 import org.nutz.dao.util.Daos;
 import org.nutz.dao.util.cnd.SimpleCondition;
 import org.nutz.dao.util.cri.Exps;
+import org.nutz.dao.util.cri.NestExps;
 import org.nutz.dao.util.cri.SimpleCriteria;
 import org.nutz.dao.util.cri.SqlExpression;
 import org.nutz.dao.util.cri.SqlExpressionGroup;
@@ -62,6 +67,8 @@ import org.nutz.lang.util.Callback2;
  */
 public class Cnd implements OrderBy, Criteria, GroupBy {
 
+    private static final long serialVersionUID = 1L;
+
     /**
      * 用字符串和参数格式化出一个条件语句,注意,不会抹除特殊字符
      * @param format sql条件
@@ -102,6 +109,9 @@ public class Cnd implements OrderBy, Criteria, GroupBy {
      * @return 条件表达式
      */
     public static SqlExpression exp(String name, String op, Object value) {
+    	if(value!=null && value instanceof Nesting){
+    		return NestExps.create(name, op, (Nesting) value);
+    	}
         return Exps.create(name, op, value);
     }
 
@@ -388,7 +398,7 @@ public class Cnd implements OrderBy, Criteria, GroupBy {
 
     /**
      * 分组
-     * @param java属性/数据库字段名称
+     * @param names java属性或数据库字段名称
      */
     public GroupBy groupBy(String... names) {
         cri.groupBy(names);
@@ -397,7 +407,7 @@ public class Cnd implements OrderBy, Criteria, GroupBy {
 
     /**
      * 分组中的having条件
-     * @param 条件语句
+     * @param cnd 条件语句
      */
     public GroupBy having(Condition cnd) {
         cri.having(cnd);
@@ -473,5 +483,46 @@ public class Cnd implements OrderBy, Criteria, GroupBy {
         if (re)
             return Cnd.where(exps);
         return null;
+    }
+    
+    /**
+     * 若value为null/空白字符串/空集合/空数组,则本条件不添加.
+     * @see Cnd#and(String, String, Object)
+     */
+    public Cnd andEX(String name, String op, Object value) {
+        return and(Cnd.expEX(name, op, value));
+    }
+    
+    /**
+     * 若value为null/空白字符串/空集合/空数组,则本条件不添加.
+     * @see Cnd#or(String, String, Object)
+     */
+    public Cnd orEX(String name, String op, Object value) {
+        return or(Cnd.expEX(name, op, value));
+    }
+    
+    public static SqlExpression expEX(String name, String op, Object value) {
+        if (_ex(value))
+            return null;
+        return Cnd.exp(name, op, value);
+    }
+
+    @SuppressWarnings("rawtypes")
+    public static boolean _ex(Object value) {
+        return value == null
+                || (value instanceof CharSequence && Strings.isBlank((CharSequence)value))
+                || (value instanceof Collection && ((Collection)value).isEmpty())
+                || (value.getClass().isArray() && Array.getLength(value) == 0);
+    }
+    
+    public GroupBy getGroupBy() {
+        return cri.getGroupBy();
+    }
+    
+    /**
+     * 构造一个可嵌套条件，需要dao支持才能映射类与表和属性与列
+     */
+    public static Nesting nst(Dao dao){
+    	return new SimpleNesting(dao);
     }
 }

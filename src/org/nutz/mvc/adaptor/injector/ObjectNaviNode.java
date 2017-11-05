@@ -1,13 +1,14 @@
 package org.nutz.mvc.adaptor.injector;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * 对象路径节点转换.<br/>
- * 将URL中的字符串参数名转换成对结构, 然后通过 {@link Objs}转换成实体对象<br/>
+ * 将URL中的字符串参数名转换成对结构, 然后通过 {@link org.nutz.mapl.Mapl}转换成实体对象<br/>
  * URL规则:
  * <ul>
  *  <li>对象与属性之间使用"."做为连接符
@@ -169,9 +170,25 @@ public class ObjectNaviNode {
             return value == null ? null : value.length == 1 ? value[0] : value;
         }
         if(type == TYPE_LIST){
+            // fix issue #1109, 列表的key需要重排
             List list = new ArrayList();
-            for(String o : child.keySet()){
-                list.add(child.get(o).get());
+            List<Integer> keys = new ArrayList<Integer>();
+            List<String> keys2 = new ArrayList<String>();
+            
+            for (String key : child.keySet()) {
+                try {
+                    keys.add(Integer.parseInt(key));
+                }
+                catch (NumberFormatException e) {
+                    keys2.add(key);
+                }
+            }
+            Collections.sort(keys);
+            for(Integer index : keys){
+                list.add(child.get(index.toString()).get());
+            }
+            for(String key2 : keys2){
+                list.add(child.get(key2).get());
             }
             return list;
         }

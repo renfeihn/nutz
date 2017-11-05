@@ -9,7 +9,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -17,8 +17,10 @@ import java.util.Properties;
 import org.nutz.castor.Castors;
 import org.nutz.lang.Files;
 import org.nutz.lang.Lang;
+import org.nutz.lang.Mirror;
 import org.nutz.lang.Streams;
 import org.nutz.lang.Strings;
+import org.nutz.lang.inject.Injecting;
 import org.nutz.lang.util.Disks;
 import org.nutz.lang.util.FileVisitor;
 import org.nutz.lang.util.MultiLineProperties;
@@ -70,6 +72,9 @@ public class PropertiesProxy extends MultiLineProperties {
         catch (IOException e) {
             throw Lang.wrapThrow(e);
         }
+        finally {
+            Streams.safeClose(in);
+        }
     }
 
     /**
@@ -84,6 +89,9 @@ public class PropertiesProxy extends MultiLineProperties {
         }
         catch (IOException e) {
             throw Lang.wrapThrow(e);
+        }
+        finally {
+            Streams.safeClose(r);
         }
     }
 
@@ -101,6 +109,8 @@ public class PropertiesProxy extends MultiLineProperties {
             List<NutResource> list = getResources(paths);
             if (utf8)
                 for (NutResource nr : list) {
+                    if (log.isDebugEnabled())
+                        log.debug("load properties from " + nr);
                     Reader r = nr.getReader();
                     try {
                         load(nr.getReader(), false);
@@ -198,17 +208,21 @@ public class PropertiesProxy extends MultiLineProperties {
     }
 
     public List<String> getList(String key) {
+        return getList(key,"\n");
+    }
+
+    public List<String> getList(String key,String separatorChar) {
         List<String> re = new ArrayList<String>();
         String keyVal = get(key);
         if (Strings.isNotBlank(keyVal)) {
-            String[] vlist = Strings.splitIgnoreBlank(keyVal, "\n");
+            String[] vlist = Strings.splitIgnoreBlank(keyVal, separatorChar);
             for (String v : vlist) {
                 re.add(v);
             }
         }
         return re;
     }
-
+    
     public String trim(String key) {
         return Strings.trim(get(key));
     }
@@ -343,10 +357,24 @@ public class PropertiesProxy extends MultiLineProperties {
     }
 
     public Map<String, String> toMap() {
-        return new HashMap<String, String>(this);
+        return new LinkedHashMap<String, String>(this);
     }
     
     public String get(String key) {
         return super.get(key);
+    }
+    
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public <T> T make(Class<T> klass, String prefix) {
+        Mirror<T> mirror = Mirror.me(klass);
+        T t = mirror.born();
+        Map map = toMap();
+        map = Lang.filter(map, prefix, null, null, null);
+        for (Entry<String, Object> en : ((Map<String, Object>)map).entrySet()) {
+            String name = en.getKey();
+            Injecting setter = mirror.getInjecting(name);
+            setter.inject(t, en.getValue());
+        }
+        return t;
     }
 }

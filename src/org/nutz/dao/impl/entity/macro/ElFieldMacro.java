@@ -14,7 +14,12 @@ import org.nutz.lang.util.Context;
 
 public class ElFieldMacro extends NutPojo {
 
-    private El bin;
+    /**
+	 * 
+	 */
+	private static final long serialVersionUID = 5393288165729677800L;
+
+	private El bin;
 
     private MappingField entityField;
 
@@ -46,4 +51,8 @@ public class ElFieldMacro extends NutPojo {
         return re;
     }
 
+    @Override
+    public String forPrint() {
+        return "// NOT SQL // ElFieldMacro=" + this.bin;
+    }
 }
